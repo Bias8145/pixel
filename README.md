@@ -13,7 +13,7 @@ This script is designed to set up a signing build environment.
 ### 1. Run the Script  
 Execute the following command in your root build directory:  
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/Khakiq8145/Signing-keys/main/keygen.sh)
+bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/keygen.sh)
 ```
 
 ### 2. Provide Certificate Information  
@@ -27,7 +27,7 @@ bash <(curl -s https://raw.githubusercontent.com/Khakiq8145/Signing-keys/main/ke
 ---
 
 ## Preparing the Device Tree (for other ROMs)  
-Add the following line to your `device.mk` (or the common device tree):  
+Add the following line to your device tree `device.mk` (or the common device tree):  
 ```makefile
 -include vendor/lineage-priv/keys/keys.mk
 ```
