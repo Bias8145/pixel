@@ -16,7 +16,7 @@ Execute the following command in your root build directory:
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/keygen.sh)
 ```
 
-``bash
+```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/aosp.sh)
 ```
 
