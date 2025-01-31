@@ -11,11 +11,13 @@ This script is designed to set up a signing build environment.
 ## Usage  
 
 ### 1. Run the Script  
-Execute the following command in your root build directory:  
+Execute the following command in your root build directory: 
+lineage-priv keys
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/keygen.sh)
 ```
 
+aosp keys
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/aosp.sh)
 ```
