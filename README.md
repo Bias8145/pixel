@@ -16,11 +16,6 @@ Execute the following command in your root build directory:
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/keygen.sh)
 ```
 
-### move existing certificate
-```bash
-bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/keys.sh)
-```
-
 ### 2. Provide Certificate Information  
 - Input the required details for the certificate subject line.  
 - Confirm each prompt when asked.
