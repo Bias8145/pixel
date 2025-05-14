@@ -1,5 +1,6 @@
 #!/bin/bash
 
+echo
 echo "=== Starting Android source repositories cloning process ==="
 
 # Function to clone a repository with informative output and error checking
