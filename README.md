@@ -11,17 +11,21 @@ This script is designed to set up a signing build environment.
 
 ### 0. Run the script for clone sunfish tree
 Execute the following command in your root build directory: 
+### 1. sunfish
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/morp_sunfish.sh)
 ```
 
-``bash
+### 2. flame
+```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/morp_flame.sh)
 ```
 
-``bash
+### 3. coral
+```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/morp_coral.sh)
 ```
+
 
 ### 1. Run the Script  
 Execute the following command in your root build directory: 
