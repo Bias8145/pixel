@@ -17,17 +17,17 @@ bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/morp
 ```
 ## • flame
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/morp_flame.sh)
+bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_flame.sh)
 ```
 ## • coral
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/morp_coral.sh)
+bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_coral.sh)
 ```
 ---
 ### 1. Run the Script  
 Execute the following command in your root build directory: 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/keygen.sh)
+bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/keygen.sh)
 ```
 
 ### 2. Provide Certificate Information  
