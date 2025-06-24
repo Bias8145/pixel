@@ -13,7 +13,7 @@ This script is designed to set up a signing build environment.
 Execute the following command in your root build directory: 
 ## • sunfish
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/Bias8145/Signing-keys/main/morp_sunfish.sh)
+bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_sunfish.sh)
 ```
 ## • flame
 ```bash
