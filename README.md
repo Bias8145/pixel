@@ -1,7 +1,4 @@
-# Signing Script  
-This script is designed to set up a signing build environment.
-
-## Disclaimer  
+# Disclaimer  
 - **This script only works with password-less keys** (DO NOT SET A PASSWORD).  
   *This limitation exists because the build process is done inline. Additional steps are required if using a password.*  
 - Compatible with **LineageOS 19.1+**.
@@ -27,9 +24,17 @@ bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_coral.
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_bramble.sh)
 ```
+
 ## • susfs redbull
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/susfs_redbull.sh)
+```
+---
+### 0. Run the script for upload file
+Execute the following command in your root build directory: 
+## • Uploader Script
+```bash
+bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/uploaders-V3.sh)
 ```
 ---
 ### 1. Run the Script  
