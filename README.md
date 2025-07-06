@@ -27,6 +27,10 @@ bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_coral.
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_bramble.sh)
 ```
+## • susfs redbull
+```bash
+bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/susfs.sh)
+```
 ---
 ### 1. Run the Script  
 Execute the following command in your root build directory: 
