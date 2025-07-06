@@ -29,7 +29,7 @@ bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_brambl
 ```
 ## • susfs redbull
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/susfs.sh)
+bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/susfs_redbull.sh)
 ```
 ---
 ### 1. Run the Script  
