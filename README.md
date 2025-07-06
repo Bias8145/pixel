@@ -23,6 +23,10 @@ bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_flame.
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_coral.sh)
 ```
+## • bramble
+```bash
+bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/morp_bramble.sh)
+```
 ---
 ### 1. Run the Script  
 Execute the following command in your root build directory: 
