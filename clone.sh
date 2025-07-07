@@ -177,7 +177,7 @@ clone_bramble() {
 
   echo
   echo "=== Proceed with KernelSU-Next + SUSFS patch? ==="
-  if ask_confirm "Run KernelSU-Next + SURFS up setup for redbull kernel? (y/n): " "y"; then
+  if ask_confirm "Run KernelSU-Next + SUSFS up setup for redbull kernel? (y/n): " "y"; then
     setup_kernelsu_susfs_redbull
   else
     echo "[SKIP] SUSFS patch was not applied."
