@@ -96,7 +96,7 @@ Make sure you have the following tools installed:
 
 ## 💡 Tips
 
-You can modify each morp_*.sh script to suit your ROM (e.g. changing default branches).
+You can modify each clone.sh script to suit your ROM (e.g. changing default branches).
 
 Combine with CI tools (GitHub Actions, Jenkins) for automated builds + uploads.
 
