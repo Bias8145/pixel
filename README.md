@@ -10,12 +10,9 @@ Designed for maintainers and flashers building for Google Pixel 4 / 4a / 4a 5G /
 ## 📁 Available Scripts
 
 Script	Description
-keygen.sh	Generate AOSP-compatible signing keys (no passwords)
-morp_sunfish.sh	Clone tree for Pixel 4a 4G (sunfish)
-morp_flame.sh	Clone tree for Pixel 4 (flame)
-morp_coral.sh	Clone tree for Pixel 4 XL (coral)
-morp_bramble.sh (soon)	Clone tree for Pixel 4a 5G (bramble)
-uploaders-V3.sh	Upload ROM builds to Telegram + Pixeldrain/Gofile
+- keygen.sh	Generate AOSP-compatible signing keys (no passwords)
+- clone.sh Clone tree for Pixel 4a 4G (sunfish), Pixel 4 (flame), Pixel 4 XL (coral), Pixel 4a 5G (bramble)
+- uploaders-V3.sh	Upload ROM builds to Telegram + Pixeldrain/Gofile
 
 
 
