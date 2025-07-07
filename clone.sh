@@ -173,11 +173,11 @@ clone_bramble() {
   clone_repo https://github.com/Bias8145/android_device_google_redbull.git device/google/redbull
   clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
   clone_repo https://github.com/TheMuppets/proprietary_vendor_google_bramble.git vendor/google/bramble
-  clone_repo https://github.com/Bias8145/android_kernel_google_redbull.git kernel/google/redbull
+  clone_repo https://github.com/Bias8145/android_kernel_google_redbull.git kernel/google/redbull susfs
 
   echo
   echo "=== Proceed with KernelSU-Next + SUSFS patch? ==="
-  if ask_confirm "Run KernelSU-Next + SUSFS setup for redbull kernel? (y/n): " "y"; then
+  if ask_confirm "Run KernelSU-Next + SURFS up setup for redbull kernel? (y/n): " "y"; then
     setup_kernelsu_susfs_redbull
   else
     echo "[SKIP] SUSFS patch was not applied."
@@ -188,7 +188,7 @@ clone_coral() {
   echo
   echo "🟢 Device: Coral (Google Pixel 4 XL)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  clone_repo https://github.com/Bias8145/android_device_google_coral.git device/google/coral aospb-Q2
+  clone_repo https://github.com/Bias8145/android_device_google_coral.git device/google/coral aosp
   clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
   clone_repo https://github.com/TheMuppets/proprietary_vendor_google_coral.git vendor/google/coral
   clone_repo https://github.com/Bias8145/android_kernel_google_msm-4.14.git kernel/google/msm-4.14 eclipse-Q2
@@ -198,7 +198,7 @@ clone_flame() {
   echo
   echo "🟢 Device: Flame (Google Pixel 4)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  clone_repo https://github.com/Bias8145/android_device_google_coral.git device/google/coral aospb-Q2
+  clone_repo https://github.com/Bias8145/android_device_google_coral.git device/google/coral aosp
   clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
   clone_repo https://github.com/TheMuppets/proprietary_vendor_google_flame.git vendor/google/flame
   clone_repo https://github.com/Bias8145/android_kernel_google_msm-4.14.git kernel/google/msm-4.14 eclipse-Q2
