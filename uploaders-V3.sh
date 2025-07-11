@@ -464,7 +464,7 @@ TROUBLESHOOTING:
     FLASH_GUIDE_TEXT+="
 
 SUPPORT & COMMUNITY:
-• Support Group: https://t.me/GooglePixel4ADiscussion
+• Support Us: https://splendid-creponne-182b60.netlify.app
 • Maintainer: @VOLD_NAMESPACE
 • Report bugs with detailed logs
 • Share your feedback and experience
