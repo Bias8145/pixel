@@ -564,8 +564,8 @@ build_inline_keyboard() {
         INLINE_KEYBOARD+=",[{\"text\":\"KernelSU Next Manager\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
     fi
     
-    # Fourth row: Flash Guide | Support Group (horizontal)
-    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Group\",\"url\":\"https://t.me/pixel4seriesofficial\"}]"
+    # Fourth row: Flash Guide | Support Us (horizontal)
+    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Us\",\"url\":\"https://t.me/pixel4seriesofficial\"}]"
     
     INLINE_KEYBOARD+="]}"
     
@@ -590,9 +590,9 @@ build_inline_keyboard() {
     
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
         print_colored $WHITE "   Row 3: KernelSU Next Manager"
-        print_colored $WHITE "   Row 4: Flash Guide | Support Group"
+        print_colored $WHITE "   Row 4: Flash Guide | Support Us"
     else
-        print_colored $WHITE "   Row 3: Flash Guide | Support Group"
+        print_colored $WHITE "   Row 3: Flash Guide | Support Us"
     fi
 }
 
