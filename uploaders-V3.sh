@@ -637,14 +637,13 @@ build_inline_keyboard() {
     # Row 3: Flash Guide | Support Group
     print_colored $WHITE "   Row 3: Flash Guide | Support Group"
 
-    # Row 4 & 5: KSU or not
+    # Row 4: KernelSU Next Manager (jika aktif)
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
         print_colored $WHITE "   Row 4: KernelSU Next Manager"
         print_colored $WHITE "   Row 5: Support Our Work"
     else
         print_colored $WHITE "   Row 4: Support Our Work"
     fi
-}
 
 # Function to send message to Telegram
 send_telegram_message() {
