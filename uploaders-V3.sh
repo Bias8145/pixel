@@ -544,6 +544,8 @@ build_inline_keyboard() {
     
     # URLs for additional downloads
     KSU_NEXT_MANAGER_URL="https://t.me/ksunext/728"
+
+    SUPPORT_GROUP_URL="https://t.me/pixel4seriesofficial"
     
     INLINE_KEYBOARD='{"inline_keyboard":['
     
@@ -597,10 +599,16 @@ build_inline_keyboard() {
         INLINE_KEYBOARD+="]"
     fi
     
-    # Third row: KernelSU Next Manager (only if KSU Next SUSFS is enabled)
+    # Row 3: Flash Guide | Support Group
+    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Group\",\"url\":\"${SUPPORT_GROUP_URL}\"}]"
+
+    # Row 4: KernelSU Manager (only if enabled)
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        INLINE_KEYBOARD+=",[{\"text\":\"KernelSU Next Manager\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
+       INLINE_KEYBOARD+=",[{\"text\":\"KernelSU Next Manager\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
     fi
+
+    # Row 5: Support Our Work
+    INLINE_KEYBOARD+=",[{\"text\":\"Support Our Work\",\"url\":\"https://donate-morpheus.netlify.app/\"}]"
     
     # Fourth row: Flash Guide | Support Us (horizontal)
     INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Our Work\",\"url\":\"https://donate-morpheus.netlify.app/\"}]"
@@ -611,26 +619,30 @@ build_inline_keyboard() {
     
     # Debug: Show keyboard structure
     print_colored $YELLOW "Keyboard layout:"
-    
-    # Show first row content
+
+    # Row 1: ROM | BOOT
     ROW1_CONTENT="   Row 1: "
     BUTTON_COUNT=0
     [ ${#MAIN_URLS[@]} -gt 0 ] && { ROW1_CONTENT+="ROM"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
     [ ${#MAIN_URLS[@]} -gt 1 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW1_CONTENT+=" | "; ROW1_CONTENT+="BOOT"; }
     print_colored $WHITE "$ROW1_CONTENT"
-    
-    # Show second row content
+
+    # Row 2: DTBO | VENDOR BOOT
     ROW2_CONTENT="   Row 2: "
     BUTTON_COUNT=0
     [ ${#MAIN_URLS[@]} -gt 2 ] && { ROW2_CONTENT+="DTBO"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
     [ ${#MAIN_URLS[@]} -gt 3 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW2_CONTENT+=" | "; ROW2_CONTENT+="VENDOR BOOT"; }
     print_colored $WHITE "$ROW2_CONTENT"
-    
+
+    # Row 3: Flash Guide | Support Group
+    print_colored $WHITE "   Row 3: Flash Guide | Support Group"
+
+    # Row 4 & 5: KSU or not
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        print_colored $WHITE "   Row 3: KernelSU Next Manager"
-        print_colored $WHITE "   Row 4: Flash Guide | Support Our Work"
+        print_colored $WHITE "   Row 4: KernelSU Next Manager"
+        print_colored $WHITE "   Row 5: Support Our Work"
     else
-        print_colored $WHITE "   Row 3: Flash Guide | Support Our Work"
+        print_colored $WHITE "   Row 4: Support Our Work"
     fi
 }
 
