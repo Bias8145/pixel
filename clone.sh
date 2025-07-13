@@ -208,7 +208,7 @@ clone_sunfish() {
   echo
   echo "🟢 Device: Sunfish (Google Pixel 4a 4G)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  clone_repo https://github.com/Bias8145/android_device_google_sunfish.git device/google/sunfish sunfish-Q2
+  clone_repo https://github.com/Bias8145/android_device_google_sunfish.git device/google/sunfish
   clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
   clone_repo https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git vendor/google/sunfish
   clone_repo https://github.com/Bias8145/android_kernel_google_msm-4.14.git kernel/google/msm-4.14 eclipse-Q2
