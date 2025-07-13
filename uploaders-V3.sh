@@ -89,6 +89,36 @@ ask_ksu_next_susfs() {
     echo ""
 }
 
+# Function to get user confirmation for GApps
+ask_gapps_variant() {
+    echo ""
+    print_colored $YELLOW "GApps Variant"
+    print_colored $WHITE "Is this a GApps build?"
+    print_colored $CYAN "  [Y] Yes - GApps build"
+    print_colored $CYAN "  [N] No  - Vanilla build"
+    echo ""
+
+    while true; do
+        read -p "$(print_colored $YELLOW "Enter your choice (Y/N): ")" choice
+        case $choice in
+            [Yy]* )
+                IS_GAPPS="true"
+                print_colored $GREEN "✅ GApps build selected"
+                break
+                ;;
+            [Nn]* )
+                IS_GAPPS="false"
+                print_colored $BLUE "✅ Vanilla build selected"
+                break
+                ;;
+            * )
+                print_colored $RED "❌ Please answer Y or N"
+                ;;
+        esac
+    done
+    echo ""
+}
+
 # Function to detect device information
 detect_device_info() {
     local first_file="$1"
@@ -143,13 +173,23 @@ extract_build_info() {
 # Function to build tags and notes
 build_tags_and_notes() {
     EXTRA_TAGS=""
-    EXTRA_NOTE_RAW=""
-    
-    if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        EXTRA_TAGS+=" [KSU-NEXT] [SUSFS]"
-        EXTRA_NOTE_RAW+="✅ KernelSU Next support included\n"
-        EXTRA_NOTE_RAW+="✅ SUSFS (Suspicious File System) enabled\n"
-    fi
+EXTRA_NOTE_RAW=""
+
+# GApps/Vanilla Tagging
+if [ "$IS_GAPPS" = "true" ]; then
+    EXTRA_TAGS+=" [GAPPS]"
+    EXTRA_NOTE_RAW+="✅ Google Apps included\n"
+else
+    EXTRA_TAGS+=" [VANILLA]"
+    EXTRA_NOTE_RAW+="✅ Vanilla build (no Google Apps)\n"
+fi
+
+# KSU Tagging
+if [ "$KSU_NEXT_SUSFS" = "true" ]; then
+    EXTRA_TAGS+=" [KSU-NEXT] [SUSFS]"
+    EXTRA_NOTE_RAW+="✅ KernelSU Next support included\n"
+    EXTRA_NOTE_RAW+="✅ SUSFS (Suspicious File System) enabled\n"
+fi
     
     # Build tag name
     TAG_NAME="[${PROJECT_NAME// /_}]"
@@ -747,6 +787,9 @@ main() {
     
     # Ask for KSU Next SUSFS configuration
     ask_ksu_next_susfs
+
+    # Ask for GAPPS Varians configuration
+    ask_gapps_variant
     
     # Detect device and build info
     detect_device_info "$1"
