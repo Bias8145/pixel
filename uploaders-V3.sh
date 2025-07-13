@@ -149,8 +149,6 @@ build_tags_and_notes() {
         EXTRA_TAGS+=" [KSU-NEXT] [SUSFS]"
         EXTRA_NOTE_RAW+="✅ KernelSU Next support included\n"
         EXTRA_NOTE_RAW+="✅ SUSFS (Suspicious File System) enabled\n"
-        EXTRA_NOTE_RAW+="✅ Enhanced root hiding capabilities\n"
-        EXTRA_NOTE_RAW+="✅ Advanced detection bypass\n"
     fi
     
     # Build tag name
