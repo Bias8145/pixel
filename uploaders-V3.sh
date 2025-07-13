@@ -565,7 +565,7 @@ build_inline_keyboard() {
     fi
     
     # Fourth row: Flash Guide | Support Us (horizontal)
-    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Us\",\"url\":\"https://t.me/pixel4seriesofficial\"}]"
+    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Our Work\",\"url\":\"https://donate-morpheus.netlify.app/\"}]"
     
     INLINE_KEYBOARD+="]}"
     
@@ -590,9 +590,9 @@ build_inline_keyboard() {
     
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
         print_colored $WHITE "   Row 3: KernelSU Next Manager"
-        print_colored $WHITE "   Row 4: Flash Guide | Support Us"
+        print_colored $WHITE "   Row 4: Flash Guide | Support Our Work"
     else
-        print_colored $WHITE "   Row 3: Flash Guide | Support Us"
+        print_colored $WHITE "   Row 3: Flash Guide | Support Our Work"
     fi
 }
 
