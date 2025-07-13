@@ -149,6 +149,8 @@ build_tags_and_notes() {
         EXTRA_TAGS+=" [KSU-NEXT] [SUSFS]"
         EXTRA_NOTE_RAW+="✅ KernelSU Next support included\n"
         EXTRA_NOTE_RAW+="✅ SUSFS (Suspicious File System) enabled\n"
+        EXTRA_NOTE_RAW+="✅ Enhanced root hiding capabilities\n"
+        EXTRA_NOTE_RAW+="✅ Advanced detection bypass\n"
     fi
     
     # Build tag name
@@ -498,14 +500,12 @@ Flash at your own risk and ensure you understand the process!"
     fi
 }
 
-# Function to build inline keyboard - UPDATED WITH NEW LAYOUT
+# Function to build inline keyboard - Modified Layout
 build_inline_keyboard() {
-    print_colored $BLUE "⌨️  Building inline keyboard..."
+    print_colored $BLUE "Building inline keyboard..."
     
     # URLs for additional downloads
     KSU_NEXT_MANAGER_URL="https://t.me/ksunext/728"
-    SUPPORT_WORK_URL="https://donate-morpheus.netlify.app/"
-    CHANNEL_SUPPORT_URL="https://t.me/pixel4seriesofficial"
     
     INLINE_KEYBOARD='{"inline_keyboard":['
     
@@ -564,42 +564,12 @@ build_inline_keyboard() {
         INLINE_KEYBOARD+=",[{\"text\":\"KernelSU Next Manager\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
     fi
     
-    # Fourth row: Flash Guide | Channel Support (horizontal)
-    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Channel Support\",\"url\":\"${CHANNEL_SUPPORT_URL}\"}]"
-    
-    # Fifth row: Support Our Work (full width)
-    INLINE_KEYBOARD+=",[{\"text\":\"Support Our Work\",\"url\":\"${SUPPORT_WORK_URL}\"}]"
+    # Fourth row: Flash Guide | Support Us (horizontal)
+    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Us\",\"url\":\"https://t.me/pixel4seriesofficial\"}]"
     
     INLINE_KEYBOARD+="]}"
     
     print_colored $GREEN "✅ Inline keyboard built successfully"
-    
-    # Debug: Show keyboard structure
-    print_colored $YELLOW "📱 Keyboard layout preview:"
-    
-    # Show first row content
-    ROW1_CONTENT="   Row 1: "
-    BUTTON_COUNT=0
-    [ ${#MAIN_URLS[@]} -gt 0 ] && { ROW1_CONTENT+="ROM"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
-    [ ${#MAIN_URLS[@]} -gt 1 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW1_CONTENT+=" | "; ROW1_CONTENT+="BOOT"; }
-    print_colored $WHITE "$ROW1_CONTENT"
-    
-    # Show second row content
-    ROW2_CONTENT="   Row 2: "
-    BUTTON_COUNT=0
-    [ ${#MAIN_URLS[@]} -gt 2 ] && { ROW2_CONTENT+="DTBO"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
-    [ ${#MAIN_URLS[@]} -gt 3 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW2_CONTENT+=" | "; ROW2_CONTENT+="VENDOR BOOT"; }
-    print_colored $WHITE "$ROW2_CONTENT"
-    
-    local row_num=3
-    if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        print_colored $WHITE "   Row $row_num: KernelSU Next Manager"
-        row_num=$((row_num+1))
-    fi
-    print_colored $WHITE "   Row $row_num: Flash Guide | Channel Support"
-    row_num=$((row_num+1))
-    print_colored $WHITE "   Row $row_num: Support Our Work"
-}
     
     # Debug: Show keyboard structure
     print_colored $YELLOW "Keyboard layout:"
