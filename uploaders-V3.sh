@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 
 # Upload Script by VOLD_NAMESPACE
 
@@ -37,6 +37,15 @@ print_colored() {
     echo -e "${1}${2}${NC}"
 }
 
+# Function to log activities
+log_activity() {
+    local log_message="$1"
+    local log_file="upload_script.log"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] $log_message" >> "$log_file"
+    print_colored $PURPLE "[LOG] $log_message"
+}
+
 # Function to print banner
 print_banner() {
     print_colored $CYAN "╔════════════════════════════════════════════════════════════════╗"
@@ -44,6 +53,7 @@ print_banner() {
     print_colored $CYAN "║             Enhanced Version v2.0                                         ║"
     print_colored $CYAN "╚════════════════════════════════════════════════════════════════╝"
     echo ""
+    log_activity "Script started"
 }
 
 # Function to validate inputs
@@ -55,11 +65,13 @@ validate_inputs() {
         print_colored $YELLOW "Examples:"
         print_colored $WHITE "  ./upload.sh banner.jpg 'LineageOS 21' rom.zip boot.img"
         print_colored $WHITE "  ./upload.sh https://example.com/banner.jpg 'AOSP 15' system.img"
+        log_activity "Validation failed: Insufficient arguments"
         exit 1
     fi
+    log_activity "Input validation passed"
 }
 
-# Function to get user confirmation for KSU Next SUSFS
+# Function to ask for KSU Next SUSFS
 ask_ksu_next_susfs() {
     echo ""
     print_colored $YELLOW "KSU Next SUSFS Configuration"
@@ -74,11 +86,13 @@ ask_ksu_next_susfs() {
             [Yy]* ) 
                 KSU_NEXT_SUSFS="true"
                 print_colored $GREEN "✅ KSU Next SUSFS support will be included"
+                log_activity "KSU Next SUSFS support enabled"
                 break
                 ;;
             [Nn]* ) 
                 KSU_NEXT_SUSFS="false"
                 print_colored $BLUE "Standard build without KSU Next SUSFS"
+                log_activity "Standard build selected (no KSU Next SUSFS)"
                 break
                 ;;
             * ) 
@@ -94,12 +108,10 @@ detect_device_info() {
     local first_file="$1"
     DEVICE_NAME=$(echo "$first_file" | awk -F '/' '{print $(NF-1)}' | tr '[:lower:]' '[:upper:]')
     
-    # If device name is empty, try to extract from filename
     if [ -z "$DEVICE_NAME" ] || [ "$DEVICE_NAME" = "." ]; then
         DEVICE_NAME=$(basename "$first_file" | cut -d'_' -f1 | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]')
     fi
     
-    # Default device name if still empty
     if [ -z "$DEVICE_NAME" ]; then
         DEVICE_NAME="UNKNOWN"
     fi
@@ -108,6 +120,7 @@ detect_device_info() {
     BUILD_PROP="$DEVICE_DIR/system/build.prop"
     
     print_colored $BLUE "Device detected: $DEVICE_NAME"
+    log_activity "Device detected: $DEVICE_NAME"
 }
 
 # Function to extract build information
@@ -120,7 +133,6 @@ extract_build_info() {
         ANDROID_VERSION=$(grep "^ro.build.version.release=" "$BUILD_PROP" 2>/dev/null | cut -d'=' -f2)
         SDK_VERSION=$(grep "^ro.build.version.sdk=" "$BUILD_PROP" 2>/dev/null | cut -d'=' -f2)
         
-        # Format security patch date
         if [ -n "$SECURITY_PATCH" ]; then
             FORMATTED_PATCH=$(date -d "$SECURITY_PATCH" "+%B %Y" 2>/dev/null || echo "$SECURITY_PATCH")
         else
@@ -131,12 +143,14 @@ extract_build_info() {
         print_colored $WHITE "   Android Version: $ANDROID_VERSION"
         print_colored $WHITE "   Security Patch: $FORMATTED_PATCH"
         print_colored $WHITE "   Build ID: $ROM_ID"
+        log_activity "Build information extracted: Android=$ANDROID_VERSION, Patch=$FORMATTED_PATCH, ID=$ROM_ID"
     else
         print_colored $YELLOW "⚠️  Build.prop not found, using default values"
         ANDROID_VERSION="15"
         FORMATTED_PATCH="Unknown"
         ROM_ID="Unknown"
         ROM_DISPLAY="Unknown"
+        log_activity "Build.prop not found, using default values"
     fi
 }
 
@@ -153,7 +167,6 @@ build_tags_and_notes() {
         EXTRA_NOTE_RAW+="✅ Advanced detection bypass\n"
     fi
     
-    # Build tag name
     TAG_NAME="[${PROJECT_NAME// /_}]"
     if [ "$ROM_DISPLAY" != "$ROM_ID" ] && [ -n "$ROM_DISPLAY" ] && [ "$ROM_DISPLAY" != "Unknown" ]; then
         TAG_NAME+=" [$ROM_DISPLAY] [$ROM_ID]"
@@ -162,7 +175,6 @@ build_tags_and_notes() {
     fi
     TAG_NAME+=" [Android $ANDROID_VERSION]${EXTRA_TAGS} [$RELEASE_DATE]"
     
-    # Build extra notes
     EXTRA_NOTE=$(echo -e "$EXTRA_NOTE_RAW")
     if [ -z "$EXTRA_NOTE" ]; then
         EXTRA_NOTE="✅ ROM build without modifications
@@ -171,7 +183,7 @@ build_tags_and_notes() {
 ⚠️ Always backup your data before flashing
 Follow the flash guide for proper installation"
     else
-        EXTRA_NOTE+="
+        EXTRA_NOTE+="\n
 ✅ Custom build with enhanced features
 ✅ Advanced users recommended
 
@@ -180,6 +192,7 @@ Follow the flash guide for proper installation"
     fi
     
     print_colored $GREEN "✅ Tags and notes built successfully"
+    log_activity "Tags and notes built: $TAG_NAME"
 }
 
 # Function to calculate file hash (MD5 and SHA256)
@@ -212,7 +225,7 @@ calculate_file_hash() {
     esac
 }
 
-# Function to get short hash (first 8 characters)
+# Function to get short hash
 get_short_hash() {
     local full_hash="$1"
     if [ "$full_hash" != "N/A" ] && [ -n "$full_hash" ]; then
@@ -239,6 +252,7 @@ build_telegram_message() {
 <pre>${EXTRA_NOTE}</pre>
 
 <b>Files Size Information:</b>"
+    log_activity "Telegram message built"
 }
 
 # Function to generate file names
@@ -249,11 +263,9 @@ generate_file_name() {
 
     case $file_counter in
         1)
-            # ROM Package - keep original naming structure
             BASE_RENAME="${PROJECT_NAME// /_}_${DEVICE_NAME}_${RELEASE_DATE}"
             ;;
         2)
-            # BOOT Image - include KSU info if enabled
             if [ "$KSU_NEXT_SUSFS" = "true" ]; then
                 BASE_RENAME="boot_${RELEASE_DATE}_KSU-NEXT_SUSFS"
             else
@@ -261,15 +273,12 @@ generate_file_name() {
             fi
             ;;
         3)
-            # DTBO Image - explicit name
             BASE_RENAME="dtbo_${RELEASE_DATE}"
             ;;
         4)
-            # VENDOR_BOOT Image - explicit name
             BASE_RENAME="vendor_boot_${RELEASE_DATE}"
             ;;
         *)
-            # Other files - include original filename base + date
             BASE_RENAME="$(basename "$filename" ."$ext")_${RELEASE_DATE}"
             ;;
     esac
@@ -309,18 +318,22 @@ upload_to_pixeldrain() {
     
     if [ "$file_size" -le "$max_size" ]; then
         print_colored $CYAN "Uploading $file_name to Pixeldrain..." >&2
+        log_activity "Uploading $file_name to Pixeldrain"
         PIXELDRAIN_RESPONSE=$(curl -s -u :$PIXELDRAIN_API_KEY -F "file=@$file_name" https://pixeldrain.com/api/file)
         PIXELDRAIN_ID=$(echo "$PIXELDRAIN_RESPONSE" | jq -r '.id // empty' 2>/dev/null)
         
         if [ -n "$PIXELDRAIN_ID" ] && [ "$PIXELDRAIN_ID" != "null" ]; then
             print_colored $GREEN "✅ Pixeldrain upload successful" >&2
+            log_activity "Pixeldrain upload successful: https://pixeldrain.com/u/$PIXELDRAIN_ID"
             echo "https://pixeldrain.com/u/$PIXELDRAIN_ID"
         else
             print_colored $YELLOW "⚠️ Pixeldrain upload failed, using fallback" >&2
+            log_activity "Pixeldrain upload failed for $file_name"
             echo "https://pixeldrain.com"
         fi
     else
         print_colored $YELLOW "⚠️ File too large for Pixeldrain (>5GB), skipping..." >&2
+        log_activity "File $file_name too large for Pixeldrain (>5GB)"
         echo "https://pixeldrain.com"
     fi
 }
@@ -329,15 +342,17 @@ upload_to_pixeldrain() {
 process_files() {
     MAIN_URLS=()
     FILE_COUNTER=0
-    FILES=("$@")  # Store original file paths
+    FILES=("$@")
     
     print_colored $BLUE "Processing files..."
+    log_activity "Processing ${#FILES[@]} files"
     
     for FILE in "$@"; do
         FILE_COUNTER=$((FILE_COUNTER + 1))
         
         if [ ! -f "$FILE" ]; then
             print_colored $RED "❌ File not found: $FILE"
+            log_activity "File not found: $FILE"
             continue
         fi
         
@@ -345,40 +360,33 @@ process_files() {
         NEW_NAME=$(generate_file_name $FILE_COUNTER $EXT)
         
         print_colored $PURPLE "Processing file $FILE_COUNTER: $(basename "$FILE")"
+        log_activity "Processing file $FILE_COUNTER: $(basename "$FILE")"
         
-        # Copy file with new name
         cp "$FILE" "$NEW_NAME"
         
-        # Get file information
         FILE_SIZE=$(stat -c%s "$NEW_NAME" 2>/dev/null || stat -f%z "$NEW_NAME" 2>/dev/null || echo "0")
         
-        # Calculate hashes
         print_colored $CYAN "Calculating file hashes..." >&2
         MD5_HASH=$(calculate_file_hash "$NEW_NAME" "md5")
         SHA256_HASH=$(calculate_file_hash "$NEW_NAME" "sha256")
         
-        # Get short hashes for display
         SHORT_MD5=$(get_short_hash "$MD5_HASH")
         SHORT_SHA256=$(get_short_hash "$SHA256_HASH")
         
         print_colored $GREEN "✅ Hash calculated: MD5=${SHORT_MD5}, SHA256=${SHORT_SHA256}" >&2
+        log_activity "Hashes for $NEW_NAME: MD5=$SHORT_MD5, SHA256=$SHORT_SHA256"
         
-        # Upload files and capture URLs properly
-        print_colored $CYAN "Uploading to Pixeldrain..." >&2
         PIXELDRAIN_URL=$(upload_to_pixeldrain "$NEW_NAME" "$FILE_SIZE")
         
-        # Validate URLs
         if [[ ! "$PIXELDRAIN_URL" =~ ^https?:// ]]; then
             PIXELDRAIN_URL="https://pixeldrain.com"
         fi
         
         MAIN_URLS+=("$PIXELDRAIN_URL")
         
-        # Add to telegram message with hash information
         DISPLAY_NAME=$(get_file_display_name $FILE_COUNTER)
         SIZE_DISPLAY=$(format_file_size $FILE_SIZE)
         
-        # Build hash display string
         HASH_INFO=""
         if [ "$SHORT_MD5" != "N/A" ] && [ "$SHORT_SHA256" != "N/A" ]; then
             HASH_INFO=" | MD5: ${SHORT_MD5} | SHA: ${SHORT_SHA256}"
@@ -388,25 +396,24 @@ process_files() {
             HASH_INFO=" | SHA: ${SHORT_SHA256}"
         fi
         
-        TELEGRAM_MESSAGE+="
-▫️ <b>${DISPLAY_NAME}</b> – ${SIZE_DISPLAY}${HASH_INFO}"
+        TELEGRAM_MESSAGE+="\n▫️ <b>${DISPLAY_NAME}</b> – ${SIZE_DISPLAY}${HASH_INFO}"
         
-        # Clean up renamed file
         rm "$NEW_NAME"
         
         print_colored $GREEN "✅ File $FILE_COUNTER processed successfully"
+        log_activity "File $FILE_COUNTER processed successfully"
     done
     
-    TELEGRAM_MESSAGE+="
-
-<b>Click the buttons below to download the files</b>"
+    TELEGRAM_MESSAGE+="\n\n<b>Click the buttons below to download the files</b>"
     
     print_colored $GREEN "✅ All files processed successfully ($FILE_COUNTER files)"
+    log_activity "All files processed successfully ($FILE_COUNTER files)"
 }
 
 # Function to create flash guide
 create_flash_guide() {
     print_colored $BLUE "Creating flash guide..."
+    log_activity "Starting creation of flash guide for $PROJECT_NAME on $DEVICE_NAME"
     
     FLASH_GUIDE_TEXT="Complete Flash Guide for $DEVICE_NAME
 
@@ -431,7 +438,7 @@ FASTBOOT METHOD:
 6. Flash vendor image (if available):
    fastboot flash vendor vendor.img
    OR
-   fastboot flash vendor_boor vendor_boot.img
+   fastboot flash vendor_boot vendor_boot.img
 7. Reboot to recovery:
    fastboot reboot recovery
 8. Apply ROM via ADB sideload:
@@ -446,25 +453,28 @@ TROUBLESHOOTING:
 ⚡ ROOT INFORMATION:"
 
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        FLASH_GUIDE_TEXT+="
+        FLASH_GUIDE_TEXT+="\n
 • KernelSU Next with SUSFS is pre-installed
 • Download KSU Next Manager from official channel
 • No additional flashing required
 • Enhanced root hiding capabilities
 • Advanced detection bypass included
 • SUSFS provides superior stealth mode"
+        log_activity "Added KSU Next SUSFS information to flash guide"
     else
-        FLASH_GUIDE_TEXT+="
+        FLASH_GUIDE_TEXT+="\n
 • No root solution pre-installed
 • You can flash KernelSU/Magisk separately if needed
 • This is a clean build without modifications
 • Root access requires separate installation"
+        log_activity "Added standard build information to flash guide"
     fi
 
-    FLASH_GUIDE_TEXT+="
-
+    FLASH_GUIDE_TEXT+="\n
 SUPPORT & COMMUNITY:
-• Support Us: https://splendid-creponne-182b60.netlify.app
+• Flash Guide: https://telegra.ph/Flash-Guide-${PROJECT_NAME// /_}-for-${DEVICE_NAME// /_}
+• Support Group: https://t.me/pixel4seriesofficial
+• Support Our Work: https://donate-morpheus.netlify.app
 • Maintainer: @VOLD_NAMESPACE
 • Report bugs with detailed logs
 • Share your feedback and experience
@@ -473,15 +483,16 @@ USEFUL LINKS:
 • Platform Tools: https://developer.android.com/tools/releases/platform-tools
 • KSU Next: https://t.me/ksunext"
 
-    FLASH_GUIDE_TEXT+="
-
+    FLASH_GUIDE_TEXT+="\n
 ⚖️ DISCLAIMER:
 Flashing custom ROMs may void warranty and could potentially brick your device. 
 The maintainer is not responsible for any damage caused by flashing this ROM.
 Flash at your own risk and ensure you understand the process!"
 
-    # Create Telegraph page
+    log_activity "Added entries to SUPPORT & COMMUNITY: Flash Guide, Support Group, Support Our Work"
+
     print_colored $CYAN "Creating Telegraph page..."
+    log_activity "Sending request to create Telegraph page"
     FLASH_GUIDE_RESPONSE=$(curl -s -X POST https://api.telegra.ph/createPage \
         -d access_token="$TELEGRAPH_TOKEN" \
         --data-urlencode "title=Flash Guide - $PROJECT_NAME for $DEVICE_NAME" \
@@ -494,37 +505,37 @@ Flash at your own risk and ensure you understand the process!"
     if [ -n "$FLASH_GUIDE_URL" ] && [ "$FLASH_GUIDE_URL" != "null" ]; then
         print_colored $GREEN "✅ Flash guide created successfully"
         print_colored $WHITE " URL: $FLASH_GUIDE_URL"
+        log_activity "Flash guide created successfully: $FLASH_GUIDE_URL"
     else
         print_colored $YELLOW "⚠️ Flash guide creation failed"
-        FLASH_GUIDE_URL=""
+        FLASH_GUIDE_URL="https://telegra.ph/Flash-Guide-${PROJECT_NAME// /_}-for-${DEVICE_NAME// /_}"
+        log_activity "Flash guide creation failed, using fallback URL: $FLASH_GUIDE_URL"
     fi
 }
 
-# Function to build inline keyboard - Modified Layout
+# Function to build inline keyboard
 build_inline_keyboard() {
     print_colored $BLUE "Building inline keyboard..."
+    log_activity "Starting inline keyboard creation for $PROJECT_NAME"
     
-    # URLs for additional downloads
     KSU_NEXT_MANAGER_URL="https://t.me/ksunext/728"
+    SUPPORT_GROUP_URL="https://t.me/pixel4seriesofficial"
+    SUPPORT_WORK_URL="https://donate-morpheus.netlify.app"
     
     INLINE_KEYBOARD='{"inline_keyboard":['
     
-    # First row: ROM | BOOT (horizontal)
     FIRST_ROW_BUTTONS=()
     
-    # Add ROM button (index 0)
     if [ ${#MAIN_URLS[@]} -gt 0 ]; then
         ROM_URL_ESCAPED=$(echo "${MAIN_URLS[0]}" | sed 's/"/\\"/g')
         FIRST_ROW_BUTTONS+=("{\"text\":\"ROM\",\"url\":\"${ROM_URL_ESCAPED}\"}")
     fi
     
-    # Add BOOT button (index 1)
     if [ ${#MAIN_URLS[@]} -gt 1 ]; then
         BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[1]}" | sed 's/"/\\"/g')
         FIRST_ROW_BUTTONS+=("{\"text\":\"BOOT\",\"url\":\"${BOOT_URL_ESCAPED}\"}")
     fi
     
-    # Add first row
     if [ ${#FIRST_ROW_BUTTONS[@]} -gt 0 ]; then
         INLINE_KEYBOARD+="["
         for i in "${!FIRST_ROW_BUTTONS[@]}"; do
@@ -532,24 +543,21 @@ build_inline_keyboard() {
             INLINE_KEYBOARD+="${FIRST_ROW_BUTTONS[$i]}"
         done
         INLINE_KEYBOARD+="]"
+        log_activity "Added first row to inline keyboard: ${FIRST_ROW_BUTTONS[*]}"
     fi
     
-    # Second row: DTBO | VENDOR_BOOT (horizontal)
     SECOND_ROW_BUTTONS=()
     
-    # Add DTBO button (index 2)
     if [ ${#MAIN_URLS[@]} -gt 2 ]; then
         DTBO_URL_ESCAPED=$(echo "${MAIN_URLS[2]}" | sed 's/"/\\"/g')
         SECOND_ROW_BUTTONS+=("{\"text\":\"DTBO\",\"url\":\"${DTBO_URL_ESCAPED}\"}")
     fi
     
-    # Add VENDOR_BOOT button (index 3)
     if [ ${#MAIN_URLS[@]} -gt 3 ]; then
         VENDOR_BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[3]}" | sed 's/"/\\"/g')
         SECOND_ROW_BUTTONS+=("{\"text\":\"VENDOR BOOT\",\"url\":\"${VENDOR_BOOT_URL_ESCAPED}\"}")
     fi
     
-    # Add second row if we have buttons
     if [ ${#SECOND_ROW_BUTTONS[@]} -gt 0 ]; then
         INLINE_KEYBOARD+=",["
         for i in "${!SECOND_ROW_BUTTONS[@]}"; do
@@ -557,219 +565,65 @@ build_inline_keyboard() {
             INLINE_KEYBOARD+="${SECOND_ROW_BUTTONS[$i]}"
         done
         INLINE_KEYBOARD+="]"
+        log_activity "Added second row to inline keyboard: ${SECOND_ROW_BUTTONS[*]}"
     fi
     
-    # Third row: KernelSU Next Manager (only if KSU Next SUSFS is enabled)
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
         INLINE_KEYBOARD+=",[{\"text\":\"KernelSU Next Manager\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
+        log_activity "Added KernelSU Next Manager button to inline keyboard"
     fi
     
-    # Fourth row: Flash Guide | Support Us (horizontal)
-    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Us\",\"url\":\"https://t.me/pixel4seriesofficial\"}]"
+    INLINE_KEYBOARD+=",["
+    INLINE_KEYBOARD+="{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"}"
+    INLINE_KEYBOARD+=",{\"text\":\"Support Group\",\"url\":\"${SUPPORT_GROUP_URL}\"}"
+    INLINE_KEYBOARD+=",{\"text\":\"Support Our Work\",\"url\":\"${SUPPORT_WORK_URL}\"}"
+    INLINE_KEYBOARD+="]"
+    log_activity "Added fourth row to inline keyboard: Flash Guide, Support Group, Support Our Work"
     
     INLINE_KEYBOARD+="]}"
     
     print_colored $GREEN "✅ Inline keyboard built successfully"
+    log_activity "Inline keyboard built successfully: $INLINE_KEYBOARD"
     
-    # Debug: Show keyboard structure
     print_colored $YELLOW "Keyboard layout:"
-    
-    # Show first row content
-    ROW1_CONTENT="   Row 1: "
-    BUTTON_COUNT=0
-    [ ${#MAIN_URLS[@]} -gt 0 ] && { ROW1_CONTENT+="ROM"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
-    [ ${#MAIN_URLS[@]} -gt 1 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW1_CONTENT+=" | "; ROW1_CONTENT+="BOOT"; }
-    print_colored $WHITE "$ROW1_CONTENT"
-    
-    # Show second row content
-    ROW2_CONTENT="   Row 2: "
-    BUTTON_COUNT=0
-    [ ${#MAIN_URLS[@]} -gt 2 ] && { ROW2_CONTENT+="DTBO"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
-    [ ${#MAIN_URLS[@]} -gt 3 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW2_CONTENT+=" | "; ROW2_CONTENT+="VENDOR BOOT"; }
-    print_colored $WHITE "$ROW2_CONTENT"
-    
-    if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        print_colored $WHITE "   Row 3: KernelSU Next Manager"
-        print_colored $WHITE "   Row 4: Flash Guide | Support Us"
-    else
-        print_colored $WHITE "   Row 3: Flash Guide | Support Us"
-    fi
-}
-
-# Function to send message to Telegram
-send_telegram_message() {
-    print_colored $BLUE "Preparing to send message to Telegram..."
-    
-    # Create temporary file for message
-    TEMP_MSG_FILE=$(mktemp)
-    echo -n "$TELEGRAM_MESSAGE" > "$TEMP_MSG_FILE"
-    
-    # Show preview
-    print_colored $YELLOW "Message Preview:"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Project: $PROJECT_NAME"
-    echo "Device: $DEVICE_NAME"
-    echo "Files: $FILE_COUNTER"
-    if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        echo "Features: KSU Next + SUSFS"
-    else
-        echo "Features: Standard build"
-    fi
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    
-    # Ask for confirmation
-    echo ""
-    while true; do
-        read -p "$(print_colored $YELLOW "Send this message with banner to Telegram? (Y/N): ")" CONFIRM
-        case $CONFIRM in
-            [Yy]* ) 
-                print_colored $GREEN "✅ Proceeding with upload..."
-                break
-                ;;
-            [Nn]* ) 
-                print_colored $RED "❌ Upload canceled by user"
-                rm "$TEMP_MSG_FILE"
-                exit 0
-                ;;
-            * ) 
-                print_colored $RED "❌ Please answer Y or N"
-                ;;
-        esac
-    done
-    
-    # Send message
-    print_colored $CYAN "Sending message to Telegram..."
-    
-    if [ "$BANNER_MODE" == "url" ]; then
-        RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto" \
-            -d chat_id="${CHAT_ID}" \
-            --data-urlencode photo="$BANNER_FILE_URL" \
-            --data-urlencode caption@"$TEMP_MSG_FILE" \
-            --data-urlencode parse_mode="HTML" \
-            --data-urlencode reply_markup="$INLINE_KEYBOARD")
-    else
-        RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto" \
-            -F chat_id="${CHAT_ID}" \
-            -F photo=@"$BANNER_FILE" \
-            -F caption=@"$TEMP_MSG_FILE" \
-            -F parse_mode="HTML" \
-            -F reply_markup="$INLINE_KEYBOARD")
-    fi
-    
-    # Clean up
-    rm "$TEMP_MSG_FILE"
-    
-    # Check response
-    if echo "$RESPONSE" | grep -q '"ok":true'; then
-        print_colored $GREEN "✅ Message sent successfully to Telegram!"
-    else
-        print_colored $RED "❌ Failed to send Telegram message"
-        print_colored $YELLOW "Response: $RESPONSE"
-    fi
-}
-
-# Function to log upload
-log_upload() {
-    print_colored $BLUE "Logging upload information..."
-    
-    {
-        echo "=== Upload Log - $(date) ==="
-        echo "Project: $PROJECT_NAME"
-        echo "Device: $DEVICE_NAME"
-        echo "Android Version: $ANDROID_VERSION"
-        echo "Security Patch: $FORMATTED_PATCH"
-        echo "KSU Next SUSFS: $KSU_NEXT_SUSFS"
-        echo "Files uploaded: $FILE_COUNTER"
-        echo "Tag: $TAG_NAME"
-        echo "Telegram Response: $RESPONSE"
-        if [ -n "$FLASH_GUIDE_URL" ]; then
-            echo "Flash Guide: $FLASH_GUIDE_URL"
-        fi
-        echo "================================"
-        echo ""
-    } >> "$UPLOAD_LOG"
-    
-    print_colored $GREEN "✅ Upload logged to: $UPLOAD_LOG"
-}
-
-# Function to show final summary
-show_summary() {
-    echo ""
-    print_colored $GREEN "╔════════════════════════════════════════════════════════════════╗"
-    print_colored $GREEN "║                      UPLOAD COMPLETED.                                     ║"
-    print_colored $GREEN "╚════════════════════════════════════════════════════════════════╝"
-    print_colored $WHITE "Project: $PROJECT_NAME"
-    print_colored $WHITE "Device: $DEVICE_NAME"
-    print_colored $WHITE "Files: $FILE_COUNTER uploaded successfully"
-    if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        print_colored $WHITE "Features: KSU Next + SUSFS enabled"
-    else
-        print_colored $WHITE "Features: Standard build"
-    fi
-    print_colored $WHITE "Log: $UPLOAD_LOG"
-    if [ -n "$FLASH_GUIDE_URL" ]; then
-        print_colored $WHITE "Flash Guide: $FLASH_GUIDE_URL"
-    fi
-    print_colored $GREEN "✅ All tasks completed successfully!"
-    echo ""
+    print_colored $WHITE "   Row 1: ${FIRST_ROW_BUTTONS[*]}"
+    print_colored $WHITE "   Row 2: ${SECOND_ROW_BUTTONS[*]}"
+    [ "$KSU_NEXT_SUSFS" = "true" ] && print_colored $WHITE "   Row 3: KernelSU Next Manager"
+    print_colored $WHITE "   Row 4: Flash Guide | Support Group | Support Our Work"
 }
 
 # Main execution
-main() {
-    print_banner
-    validate_inputs "$@"
-    
-    # Process arguments
-    BANNER_INPUT="$1"
-    shift
-    
-    # Validate banner
-    if [[ "$BANNER_INPUT" =~ ^https?:// ]]; then
-        BANNER_MODE="url"
-        BANNER_FILE_URL="$BANNER_INPUT"
-        print_colored $BLUE "Banner: Using URL - $BANNER_FILE_URL"
-    else
-        if [ ! -f "$BANNER_INPUT" ]; then
-            print_colored $RED "❌ Banner file not found: $BANNER_INPUT"
-            exit 1
-        fi
-        BANNER_MODE="file"
-        BANNER_FILE="$BANNER_INPUT"
-        print_colored $BLUE "Banner: Using file - $BANNER_FILE"
-    fi
-    
-    PROJECT_NAME="$1"
-    shift
-    RELEASE_DATE=$(date +"%d-%m-%Y")
-    PROJECT_AUTHOR="@VOLD_NAMESPACE"
-    UPLOAD_LOG="upload_log.txt"
-    
-    print_colored $BLUE "Project: $PROJECT_NAME"
-    print_colored $BLUE "Release Date: $RELEASE_DATE"
-    
-    # Ask for KSU Next SUSFS configuration
-    ask_ksu_next_susfs
-    
-    # Detect device and build info
-    detect_device_info "$1"
-    extract_build_info
-    build_tags_and_notes
-    build_telegram_message
-    
-    # Process files
-    process_files "$@"
-    
-    # Create flash guide
-    create_flash_guide
-    
-    # Build keyboard and send message
-    build_inline_keyboard
-    send_telegram_message
-    
-    # Log and show summary
-    log_upload
-    show_summary
-}
+print_banner
+validate_inputs "$@"
+BANNER="$1"
+PROJECT_NAME="$2"
+shift 2
+RELEASE_DATE=$(date '+%Y%m%d')
+PROJECT_AUTHOR="@VOLD_NAMESPACE"
 
-# Run main function with all arguments
-main "$@"
+ask_ksu_next_susfs
+detect_device_info "$1"
+extract_build_info
+build_tags_and_notes
+build_telegram_message
+process_files "$@"
+create_flash_guide
+build_inline_keyboard
+
+# Send to Telegram
+print_colored $CYAN "Sending to Telegram..."
+log_activity "Sending message to Telegram"
+TELEGRAM_RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" \
+    -F chat_id="$CHAT_ID" \
+    -F photo="$BANNER" \
+    -F caption="$TELEGRAM_MESSAGE" \
+    -F parse_mode="HTML" \
+    -F reply_markup="$INLINE_KEYBOARD")
+
+if echo "$TELEGRAM_RESPONSE" | grep -q '"ok":true'; then
+    print_colored $GREEN "✅ Successfully sent to Telegram"
+    log_activity "Successfully sent to Telegram"
+else
+    print_colored $RED "❌ Failed to send to Telegram"
+    log_activity "Failed to send to Telegram: $TELEGRAM_RESPONSE"
+fi
