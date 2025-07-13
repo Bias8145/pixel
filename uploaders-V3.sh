@@ -644,6 +644,7 @@ build_inline_keyboard() {
     else
         print_colored $WHITE "   Row 4: Support Our Work"
     fi
+}
 
 # Function to send message to Telegram
 send_telegram_message() {
