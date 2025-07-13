@@ -544,27 +544,21 @@ build_inline_keyboard() {
     
     # URLs for additional downloads
     KSU_NEXT_MANAGER_URL="https://t.me/ksunext/728"
-
     SUPPORT_GROUP_URL="https://t.me/pixel4seriesofficial"
     
     INLINE_KEYBOARD='{"inline_keyboard":['
     
-    # First row: ROM | BOOT (horizontal)
+    # First row: ROM | BOOT
     FIRST_ROW_BUTTONS=()
     
-    # Add ROM button (index 0)
     if [ ${#MAIN_URLS[@]} -gt 0 ]; then
         ROM_URL_ESCAPED=$(echo "${MAIN_URLS[0]}" | sed 's/"/\\"/g')
         FIRST_ROW_BUTTONS+=("{\"text\":\"ROM\",\"url\":\"${ROM_URL_ESCAPED}\"}")
     fi
-    
-    # Add BOOT button (index 1)
     if [ ${#MAIN_URLS[@]} -gt 1 ]; then
         BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[1]}" | sed 's/"/\\"/g')
         FIRST_ROW_BUTTONS+=("{\"text\":\"BOOT\",\"url\":\"${BOOT_URL_ESCAPED}\"}")
     fi
-    
-    # Add first row
     if [ ${#FIRST_ROW_BUTTONS[@]} -gt 0 ]; then
         INLINE_KEYBOARD+="["
         for i in "${!FIRST_ROW_BUTTONS[@]}"; do
@@ -573,23 +567,17 @@ build_inline_keyboard() {
         done
         INLINE_KEYBOARD+="]"
     fi
-    
-    # Second row: DTBO | VENDOR_BOOT (horizontal)
+
+    # Second row: DTBO | VENDOR_BOOT
     SECOND_ROW_BUTTONS=()
-    
-    # Add DTBO button (index 2)
     if [ ${#MAIN_URLS[@]} -gt 2 ]; then
         DTBO_URL_ESCAPED=$(echo "${MAIN_URLS[2]}" | sed 's/"/\\"/g')
         SECOND_ROW_BUTTONS+=("{\"text\":\"DTBO\",\"url\":\"${DTBO_URL_ESCAPED}\"}")
     fi
-    
-    # Add VENDOR_BOOT button (index 3)
     if [ ${#MAIN_URLS[@]} -gt 3 ]; then
         VENDOR_BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[3]}" | sed 's/"/\\"/g')
         SECOND_ROW_BUTTONS+=("{\"text\":\"VENDOR BOOT\",\"url\":\"${VENDOR_BOOT_URL_ESCAPED}\"}")
     fi
-    
-    # Add second row if we have buttons
     if [ ${#SECOND_ROW_BUTTONS[@]} -gt 0 ]; then
         INLINE_KEYBOARD+=",["
         for i in "${!SECOND_ROW_BUTTONS[@]}"; do
@@ -598,25 +586,23 @@ build_inline_keyboard() {
         done
         INLINE_KEYBOARD+="]"
     fi
-    
+
     # Row 3: Flash Guide | Support Group
     INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Group\",\"url\":\"${SUPPORT_GROUP_URL}\"}]"
 
     # Row 4: KernelSU Manager (only if enabled)
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-       INLINE_KEYBOARD+=",[{\"text\":\"KernelSU Next Manager\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
+        INLINE_KEYBOARD+=",[{\"text\":\"KernelSU Next Manager\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
     fi
 
     # Row 5: Support Our Work
     INLINE_KEYBOARD+=",[{\"text\":\"Support Our Work\",\"url\":\"https://donate-morpheus.netlify.app/\"}]"
-    
-    # Fourth row: Flash Guide | Support Us (horizontal)
-    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Our Work\",\"url\":\"https://donate-morpheus.netlify.app/\"}]"
-    
+
+    # Close keyboard structure
     INLINE_KEYBOARD+="]}"
-    
+
     print_colored $GREEN "✅ Inline keyboard built successfully"
-    
+
     # Debug: Show keyboard structure
     print_colored $YELLOW "Keyboard layout:"
 
@@ -637,7 +623,7 @@ build_inline_keyboard() {
     # Row 3: Flash Guide | Support Group
     print_colored $WHITE "   Row 3: Flash Guide | Support Group"
 
-    # Row 4: KernelSU Next Manager (jika aktif)
+    # Row 4: KernelSU or Support
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
         print_colored $WHITE "   Row 4: KernelSU Next Manager"
         print_colored $WHITE "   Row 5: Support Our Work"
