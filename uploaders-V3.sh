@@ -40,8 +40,8 @@ print_colored() {
 # Function to print banner
 print_banner() {
     print_colored $CYAN "╔════════════════════════════════════════════════════════════════╗"
-    print_colored $CYAN "║          VOLD_NAMESPACE Upload Script                                     ║"
-    print_colored $CYAN "║             Enhanced Version v2.0                                         ║"
+    print_colored $CYAN "           VOLD_NAMESPACE Upload Script                                     "
+    print_colored $CYAN "              Enhanced Version v2.0                                         "
     print_colored $CYAN "╚════════════════════════════════════════════════════════════════╝"
     echo ""
 }
