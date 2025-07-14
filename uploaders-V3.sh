@@ -210,7 +210,6 @@ fi
 Follow the flash guide for proper installation"
     else
         EXTRA_NOTE+="
-✅ Custom build with enhanced features
 ✅ Advanced users recommended
 
 ⚠️ Always backup your data before flashing
