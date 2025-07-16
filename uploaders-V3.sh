@@ -627,7 +627,7 @@ build_inline_keyboard() {
         print_colored $WHITE "   Row 4: KernelSU Next Manager"
         print_colored $WHITE "   Row 5: Support Our Work"
     else
-        print_colored $WHITE "   Row 4: Support Our Work"
+        print_colored $WHITE "   Row 4: About Developers"
     fi
 }
 
