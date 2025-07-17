@@ -1,4 +1,4 @@
-# 📦 Pixel Builder Toolkit
+# Pixel Builder Toolkit
 
 A collection of scripts to simplify the setup, signing, and OTA uploading process for Pixel-based Android ROM development.
 
@@ -7,7 +7,7 @@ Designed for maintainers and flashers building for Google Pixel 4 / 4a / 4a 5G /
 
 ---
 
-## 📁 Available Scripts
+## Available Scripts
 
 Script	Description
 - keygen.sh	Generate AOSP-compatible signing keys (no passwords)
@@ -18,8 +18,8 @@ Script	Description
 
 ---
 
-## ⚙️ Quick Usage
-### 🧬 1. Clone Device Trees
+## Quick Usage
+### 1. Clone Device Trees
 > Run this inside your ROM build directory
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/clone.sh)
@@ -28,7 +28,7 @@ Each script clones the full device tree, common GS files, vendor blobs, and kern
 
 ---
 
-### 🔐 2. Generate Signing Keys
+### 2. Generate Signing Keys
 > Passwordless key generation for release-keys, ideal for automated builds
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/keygen.sh)
@@ -44,7 +44,7 @@ Keys include:
 - networkstack
 
 
-## 💡 Recommended for LineageOS 19.1+ or any ROM using sign_target_files_apks.
+## Recommended for LineageOS 19.1+ or any ROM using sign_target_files_apks.
 
 ---
 
@@ -58,7 +58,7 @@ bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/uploaders-V
   "<Build Description>" \
   "out/target/product/device-name/your-rom.zip"
 ```
-### 📌 Example:
+### Example:
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/Bias8145/pixel/main/uploaders-V3.sh) \
   "https://t.me/Pixel4aUpdates/123" \
@@ -72,18 +72,18 @@ You can configure:
 
 ---
 
-## ✅ Supported Devices
+## Supported Devices
 
 Codename	Device Name	Status
 
-- sunfish	Google Pixel 4a 4G	✅
-- flame	Google Pixel 4	✅
-- coral	Google Pixel 4 XL	✅
-- bramble	Google Pixel 4a 5G	✅
+- sunfish	Google Pixel 4a 4G
+- flame	Google Pixel 4
+- coral	Google Pixel 4 XL
+- bramble	Google Pixel 4a 5G
 
 ---
 
-## 📦 Dependencies
+## Dependencies
 
 Make sure you have the following tools installed:
 - git
@@ -94,7 +94,7 @@ Make sure you have the following tools installed:
 
 ---
 
-## 💡 Tips
+## Tips
 
 You can modify each clone.sh script to suit your ROM (e.g. changing default branches).
 
