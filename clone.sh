@@ -196,7 +196,7 @@ case $choice in
   2) clone_coral ;;
   3) clone_flame ;;
   4) clone_sunfish ;;
-  *) echo "${YELLOW}[EXIT] No device selected.${RESET}" ; exit 0 ;;
+  *) echo -e "${YELLOW}[EXIT] No device selected.${RESET}" ; exit 0 ;;
 esac
 
 echo -e "\n${GREEN}[✔] All operations completed.${RESET}"
