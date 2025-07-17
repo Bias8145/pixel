@@ -4,6 +4,8 @@
 GREEN="\033[0;32m"
 RED="\033[0;31m"
 YELLOW="\033[1;33m"
+BLUE="\033[0;34m"
+CYAN="\033[0;36m"
 RESET="\033[0m"
 
 trap "echo; echo '[ABORTED] Process cancelled by user'; exit 1" INT
@@ -35,6 +37,91 @@ ask_confirm() {
       *) echo "Invalid answer. Please enter 'y' or 'n'." ;;
     esac
   done
+}
+
+# Function to list available branches
+list_branches() {
+  local repo_url=$1
+  echo -e "${CYAN}[INFO] Fetching available branches from repository...${RESET}"
+  
+  # Get remote branches, clean up output
+  local branches=$(git ls-remote --heads "$repo_url" 2>/dev/null | sed 's/.*refs\/heads\///' | sort)
+  
+  if [ -z "$branches" ]; then
+    echo -e "${RED}[ERROR] Could not fetch branches from $repo_url${RESET}"
+    return 1
+  fi
+  
+  echo -e "${BLUE}Available branches:${RESET}"
+  local i=1
+  declare -g branch_array=()
+  
+  while IFS= read -r branch; do
+    echo "$i) $branch"
+    branch_array+=("$branch")
+    ((i++))
+  done <<< "$branches"
+  
+  return 0
+}
+
+# Function to select branch interactively
+select_branch() {
+  local repo_url=$1
+  local default_branch=$2
+  local selected_branch=""
+  
+  echo
+  echo -e "${YELLOW}=== Branch Selection ===${RESET}"
+  echo "Repository: $repo_url"
+  echo "Default branch: ${default_branch:-<HEAD>}"
+  echo
+  
+  if ask_confirm "Do you want to select a specific branch? (y/n) [n]: " "n"; then
+    if list_branches "$repo_url"; then
+      echo
+      echo "0) Use default branch (HEAD)"
+      echo "d) Use default branch suggested by script: ${default_branch:-<none>}"
+      echo
+      
+      while true; do
+        read -rp "Enter your choice (0, d, or branch number): " choice
+        
+        case "$choice" in
+          0)
+            selected_branch=""
+            echo "[SELECTED] Default branch (HEAD)"
+            break
+            ;;
+          [Dd])
+            selected_branch="$default_branch"
+            echo "[SELECTED] Script default: $default_branch"
+            break
+            ;;
+          [1-9]*)
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#branch_array[@]}" ]; then
+              selected_branch="${branch_array[$((choice-1))]}"
+              echo "[SELECTED] Branch: $selected_branch"
+              break
+            else
+              echo -e "${RED}Invalid choice. Please enter a number between 0 and ${#branch_array[@]}, or 'd'${RESET}"
+            fi
+            ;;
+          *)
+            echo -e "${RED}Invalid choice. Please enter a number between 0 and ${#branch_array[@]}, or 'd'${RESET}"
+            ;;
+        esac
+      done
+    else
+      echo -e "${YELLOW}[WARNING] Could not fetch branches, using default branch${RESET}"
+      selected_branch="$default_branch"
+    fi
+  else
+    selected_branch="$default_branch"
+    echo "[SELECTED] Using ${selected_branch:-default branch}"
+  fi
+  
+  echo "$selected_branch"
 }
 
 # Function to perform cloning
@@ -73,7 +160,10 @@ do_clone() {
 clone_repo() {
   local repo_url=$1
   local target_dir=$2
-  local branch=$3
+  local default_branch=$3
+  
+  # Select branch interactively
+  local selected_branch=$(select_branch "$repo_url" "$default_branch")
 
   if [ -d "$target_dir/.git" ]; then
     echo "[INFO] Directory $target_dir already exists. Validating..."
@@ -85,9 +175,9 @@ clone_repo() {
     echo "[CHECK] Current URL    : $current_url"
     echo "[CHECK] Expected URL   : $repo_url"
     echo "[CHECK] Current Branch : $current_branch"
-    echo "[CHECK] Expected Branch: ${branch:-<default>}"
+    echo "[CHECK] Expected Branch: ${selected_branch:-<default>}"
 
-    if [[ "$current_url" == "$repo_url" && ( -z "$branch" || "$current_branch" == "$branch" ) ]]; then
+    if [[ "$current_url" == "$repo_url" && ( -z "$selected_branch" || "$current_branch" == "$selected_branch" ) ]]; then
       read -rp "Repository match. Skip or re-clone? (s = skip, r = re-clone) [s]: " action
       action=${action:-s}
       case "$action" in
@@ -95,7 +185,7 @@ clone_repo() {
           echo "[ACTION] Re-cloning $target_dir ..."
           popd > /dev/null
           rm -rf "$target_dir"
-          do_clone "$repo_url" "$target_dir" "$branch"
+          do_clone "$repo_url" "$target_dir" "$selected_branch"
           ;;
         *)
           echo "[SKIP] Skipping $target_dir"
@@ -107,14 +197,14 @@ clone_repo() {
       if ask_confirm "Delete and re-clone $target_dir? (y/n): " "n"; then
         popd > /dev/null
         rm -rf "$target_dir"
-        do_clone "$repo_url" "$target_dir" "$branch"
+        do_clone "$repo_url" "$target_dir" "$selected_branch"
       else
         echo "[SKIP] Skipping $target_dir"
         popd > /dev/null
       fi
     fi
   else
-    do_clone "$repo_url" "$target_dir" "$branch"
+    do_clone "$repo_url" "$target_dir" "$selected_branch"
   fi
 
   echo
@@ -164,54 +254,198 @@ setup_kernelsu_susfs_redbull() {
   echo
 }
 
+# Function to select repository for each component
+select_repo() {
+  local component_name=$1
+  local custom_repo=$2
+  local custom_branch=$3
+  local official_repo=$4
+  local official_branch=$5
+  
+  echo
+  echo -e "${CYAN}=== $component_name Repository Selection ===${RESET}"
+  echo "1) Custom  : $custom_repo"
+  echo "2) Official: $official_repo"
+  echo
+  
+  while true; do
+    read -rp "Select repository for $component_name (1-2): " choice
+    case "$choice" in
+      1)
+        echo "[SELECTED] Custom: $custom_repo"
+        echo "$custom_repo|$custom_branch"
+        return 0
+        ;;
+      2)
+        echo "[SELECTED] Official: $official_repo"
+        echo "$official_repo|$official_branch"
+        return 0
+        ;;
+      *)
+        echo -e "${RED}Invalid choice. Please enter 1 or 2.${RESET}"
+        ;;
+    esac
+  done
+}
+
 # Clone functions per device
 clone_bramble() {
   echo
   echo -e "🟢 Device: Bramble (Google Pixel 4a 5G)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  clone_repo https://github.com/Bias8145/android_device_google_bramble.git device/google/bramble
-  clone_repo https://github.com/Bias8145/android_device_google_redbull.git device/google/redbull
-  clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
-  clone_repo https://github.com/TheMuppets/proprietary_vendor_google_bramble.git vendor/google/bramble
-  clone_repo https://github.com/Bias8145/android_kernel_google_redbull.git kernel/google/redbull susfs
-
+  
+  # Device Bramble
+  local bramble_repo=$(select_repo "Device Bramble" \
+    "https://github.com/Bias8145/android_device_google_bramble.git" "" \
+    "https://github.com/LineageOS/android_device_google_bramble.git" "")
+  IFS='|' read -r bramble_url bramble_branch <<< "$bramble_repo"
+  
+  # Device Redbull
+  local redbull_repo=$(select_repo "Device Redbull" \
+    "https://github.com/Bias8145/android_device_google_redbull.git" "" \
+    "https://github.com/LineageOS/android_device_google_redbull.git" "")
+  IFS='|' read -r redbull_url redbull_branch <<< "$redbull_repo"
+  
+  # GS Common (always LineageOS)
   echo
-  echo "=== Proceed with KernelSU-Next + SUSFS patch? ==="
-  if ask_confirm "Run KernelSU-Next + SUSFS up setup for redbull kernel? (y/n): " "y"; then
-    setup_kernelsu_susfs_redbull
-  else
-    echo "[SKIP] SUSFS patch was not applied."
-  fi
+  echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
+  echo "Using LineageOS (standard for all devices)"
+  
+  # Vendor Bramble
+  local vendor_repo=$(select_repo "Vendor Bramble" \
+    "https://github.com/Bias8145/proprietary_vendor_google_bramble.git" "" \
+    "https://github.com/TheMuppets/proprietary_vendor_google_bramble.git" "")
+  IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
+  
+  # Kernel Redbull
+  local kernel_repo=$(select_repo "Kernel Redbull" \
+    "https://github.com/Bias8145/android_kernel_google_redbull.git" "susfs" \
+    "https://github.com/LineageOS/android_kernel_google_redbull.git" "")
+  IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
+  
+  echo
+  echo -e "${YELLOW}=== Starting Clone Process ===${RESET}"
+  
+  # Execute cloning
+  clone_repo "$bramble_url" device/google/bramble "$bramble_branch"
+  clone_repo "$redbull_url" device/google/redbull "$redbull_branch"
+  clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
+  clone_repo "$vendor_url" vendor/google/bramble "$vendor_branch"
+  clone_repo "$kernel_url" kernel/google/redbull "$kernel_branch"
 }
 
 clone_coral() {
   echo
   echo "🟢 Device: Coral (Google Pixel 4 XL)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  clone_repo https://github.com/Bias8145/android_device_google_coral.git device/google/coral aosp
+  
+  # Device Coral
+  local coral_repo=$(select_repo "Device Coral" \
+    "https://github.com/Bias8145/android_device_google_coral.git" "aosp" \
+    "https://github.com/LineageOS/android_device_google_coral.git" "")
+  IFS='|' read -r coral_url coral_branch <<< "$coral_repo"
+  
+  # GS Common (always LineageOS)
+  echo
+  echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
+  echo "Using LineageOS (standard for all devices)"
+  
+  # Vendor Coral
+  local vendor_repo=$(select_repo "Vendor Coral" \
+    "https://github.com/Bias8145/proprietary_vendor_google_coral.git" "" \
+    "https://github.com/TheMuppets/proprietary_vendor_google_coral.git" "")
+  IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
+  
+  # Kernel MSM-4.14
+  local kernel_repo=$(select_repo "Kernel MSM-4.14" \
+    "https://github.com/Bias8145/android_kernel_google_msm-4.14.git" "eclipse-Q2" \
+    "https://github.com/LineageOS/android_kernel_google_msm-4.14.git" "")
+  IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
+  
+  echo
+  echo -e "${YELLOW}=== Starting Clone Process ===${RESET}"
+  
+  # Execute cloning
+  clone_repo "$coral_url" device/google/coral "$coral_branch"
   clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
-  clone_repo https://github.com/TheMuppets/proprietary_vendor_google_coral.git vendor/google/coral
-  clone_repo https://github.com/Bias8145/android_kernel_google_msm-4.14.git kernel/google/msm-4.14 eclipse-Q2
+  clone_repo "$vendor_url" vendor/google/coral "$vendor_branch"
+  clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
 }
 
 clone_flame() {
   echo
   echo "🟢 Device: Flame (Google Pixel 4)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  clone_repo https://github.com/Bias8145/android_device_google_coral.git device/google/coral aosp
+  
+  # Device Coral (shared with Flame)
+  local coral_repo=$(select_repo "Device Coral (shared)" \
+    "https://github.com/Bias8145/android_device_google_coral.git" "aosp" \
+    "https://github.com/LineageOS/android_device_google_coral.git" "")
+  IFS='|' read -r coral_url coral_branch <<< "$coral_repo"
+  
+  # GS Common (always LineageOS)
+  echo
+  echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
+  echo "Using LineageOS (standard for all devices)"
+  
+  # Vendor Flame
+  local vendor_repo=$(select_repo "Vendor Flame" \
+    "https://github.com/Bias8145/proprietary_vendor_google_flame.git" "" \
+    "https://github.com/TheMuppets/proprietary_vendor_google_flame.git" "")
+  IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
+  
+  # Kernel MSM-4.14
+  local kernel_repo=$(select_repo "Kernel MSM-4.14" \
+    "https://github.com/Bias8145/android_kernel_google_msm-4.14.git" "eclipse-Q2" \
+    "https://github.com/LineageOS/android_kernel_google_msm-4.14.git" "")
+  IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
+  
+  echo
+  echo -e "${YELLOW}=== Starting Clone Process ===${RESET}"
+  
+  # Execute cloning
+  clone_repo "$coral_url" device/google/coral "$coral_branch"
   clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
-  clone_repo https://github.com/TheMuppets/proprietary_vendor_google_flame.git vendor/google/flame
-  clone_repo https://github.com/Bias8145/android_kernel_google_msm-4.14.git kernel/google/msm-4.14 eclipse-Q2
+  clone_repo "$vendor_url" vendor/google/flame "$vendor_branch"
+  clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
 }
 
 clone_sunfish() {
   echo
   echo "🟢 Device: Sunfish (Google Pixel 4a 4G)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  clone_repo https://github.com/Bias8145/android_device_google_sunfish.git device/google/sunfish
+  
+  # Device Sunfish
+  local sunfish_repo=$(select_repo "Device Sunfish" \
+    "https://github.com/Bias8145/android_device_google_sunfish.git" "" \
+    "https://github.com/LineageOS/android_device_google_sunfish.git" "")
+  IFS='|' read -r sunfish_url sunfish_branch <<< "$sunfish_repo"
+  
+  # GS Common (always LineageOS)
+  echo
+  echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
+  echo "Using LineageOS (standard for all devices)"
+  
+  # Vendor Sunfish
+  local vendor_repo=$(select_repo "Vendor Sunfish" \
+    "https://github.com/Bias8145/proprietary_vendor_google_sunfish.git" "" \
+    "https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git" "")
+  IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
+  
+  # Kernel MSM-4.14
+  local kernel_repo=$(select_repo "Kernel MSM-4.14" \
+    "https://github.com/Bias8145/android_kernel_google_msm-4.14.git" "eclipse-Q2" \
+    "https://github.com/LineageOS/android_kernel_google_msm-4.14.git" "")
+  IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
+  
+  echo
+  echo -e "${YELLOW}=== Starting Clone Process ===${RESET}"
+  
+  # Execute cloning
+  clone_repo "$sunfish_url" device/google/sunfish "$sunfish_branch"
   clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
-  clone_repo https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git vendor/google/sunfish
-  clone_repo https://github.com/Bias8145/android_kernel_google_msm-4.14.git kernel/google/msm-4.14 eclipse-Q2
+  clone_repo "$vendor_url" vendor/google/sunfish "$vendor_branch"
+  clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
 }
 
 # Interactive menu
