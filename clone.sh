@@ -9,497 +9,325 @@ CYAN="\033[0;36m"
 MAGENTA="\033[0;35m"
 RESET="\033[0m"
 
-trap "echo; echo '[ABORTED] Process cancelled by user'; exit 1" INT
+# Trap Ctrl+C to abort gracefully
+trap "echo -e '\n${RED}[ABORTED] Process cancelled by user${RESET}'; exit 1" INT
 
-echo
-echo -e "${YELLOW}=== Android Source Repo Cloner (Multi-Device) ===${RESET}"
-echo
+# Banner
+echo -e "\n${YELLOW}=== Android Source Repo Cloner ===${RESET}\n"
 
 # Validate required tools
 for cmd in git curl patch; do
-  if ! command -v $cmd &>/dev/null; then
-    echo -e "${RED}[ERROR] Required tool '$cmd' is missing. Please install it first.${RESET}"
-    exit 1
-  fi
+    if ! command -v "$cmd" &>/dev/null; then
+        echo -e "${RED}[ERROR] Required tool '$cmd' is missing. Please install it first.${RESET}"
+        exit 1
+    fi
 done
 
 # Function for y/n confirmation
 ask_confirm() {
-  local prompt="$1"
-  local default_answer="${2:-y}"
-  local answer
-
-  while true; do
-    read -rp "$prompt " answer
+    local prompt="$1"
+    local default_answer="${2:-y}"
+    local answer
+    read -rp "$prompt" answer
     answer=${answer:-$default_answer}
-    case "$answer" in
-      [Yy]) return 0 ;;
-      [Nn]) return 1 ;;
-      *) echo "Invalid answer. Please enter 'y' or 'n'." ;;
+    case "${answer,,}" in
+        y) return 0 ;;
+        n) return 1 ;;
+        *) echo -e "${RED}Invalid answer. Please enter 'y' or 'n'.${RESET}"; return 1 ;;
     esac
-  done
 }
 
-# Function to list available branches with improved formatting
+# Function to list available branches
 list_branches() {
-  local repo_url=$1
-  echo -e "${CYAN}[INFO] Fetching available branches from repository...${RESET}"
-  echo -e "${BLUE}Repository: ${RESET}$repo_url"
-  echo
-  
-  # Get remote branches, clean up output
-  local branches=$(git ls-remote --heads "$repo_url" 2>/dev/null | sed 's/.*refs\/heads\///' | sort)
-  
-  if [ -z "$branches" ]; then
-    echo -e "${RED}[ERROR] Could not fetch branches from repository${RESET}"
-    return 1
-  fi
-  
-  echo -e "${MAGENTA}┌─────────────────────────────────────────────────────┐${RESET}"
-  echo -e "${MAGENTA}│                Available Branches                  │${RESET}"
-  echo -e "${MAGENTA}├─────────────────────────────────────────────────────┤${RESET}"
-  
-  local i=1
-  declare -g branch_array=()
-  
-  while IFS= read -r branch; do
-    printf "${MAGENTA}│${RESET} %-2d. %-45s ${MAGENTA}│${RESET}\n" "$i" "$branch"
-    branch_array+=("$branch")
-    ((i++))
-  done <<< "$branches"
-  
-  echo -e "${MAGENTA}└─────────────────────────────────────────────────────┘${RESET}"
-  echo
-  
-  return 0
+    local repo_url=$1
+    echo -e "${CYAN}[INFO] Fetching branches from $repo_url...${RESET}"
+    local branches=$(git ls-remote --heads "$repo_url" 2>/dev/null | sed 's/.*refs/heads\///' | sort)
+    if [ -z "$branches" ]; then
+        echo -e "${RED}[ERROR] Could not fetch branches from $repo_url${RESET}"
+        return 1
+    fi
+    echo -e "${MAGENTA}┌─────────────────── Available Branches ───────────────────┐${RESET}"
+    local i=1
+    declare -g branch_array=()
+    while IFS= read -r branch; do
+        printf "${MAGENTA}│${RESET} %-2d. %-45s ${MAGENTA}│${RESET}\n" "$i" "$branch"
+        branch_array+=("$branch")
+        ((i++))
+    done <<< "$branches"
+    echo -e "${MAGENTA}└─────────────────────────────────────────────────────────┘${RESET}"
+    return 0
 }
 
 # Function to select branch interactively
 select_branch() {
-  local repo_url=$1
-  local default_branch=$2
-  local selected_branch=""
-  
-  echo
-  echo -e "${YELLOW}=== Branch Selection ===${RESET}"
-  echo -e "${BLUE}Repository:${RESET} $repo_url"
-  echo -e "${BLUE}Default branch:${RESET} ${default_branch:-<HEAD>}"
-  echo
-  
-  if ask_confirm "Do you want to select a specific branch? (y/n) [n]: " "n"; then
-    if list_branches "$repo_url"; then
-      echo -e "${CYAN}Additional Options:${RESET}"
-      echo "0) Use default branch (HEAD)"
-      if [ -n "$default_branch" ]; then
-        echo "d) Use script default branch: $default_branch"
-      fi
-      echo
-      
-      while true; do
-        read -rp "Enter your choice (0, d, or branch number): " choice
-        
-        case "$choice" in
-          0)
-            selected_branch=""
-            echo -e "${GREEN}[SELECTED] Default branch (HEAD)${RESET}"
-            break
-            ;;
-          [Dd])
-            if [ -n "$default_branch" ]; then
-              selected_branch="$default_branch"
-              echo -e "${GREEN}[SELECTED] Script default: $default_branch${RESET}"
-              break
-            else
-              echo -e "${RED}No script default branch available${RESET}"
-            fi
-            ;;
-          [1-9]*)
-            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#branch_array[@]}" ]; then
-              selected_branch="${branch_array[$((choice-1))]}"
-              echo -e "${GREEN}[SELECTED] Branch: $selected_branch${RESET}"
-              break
-            else
-              echo -e "${RED}Invalid choice. Please enter a number between 0 and ${#branch_array[@]}$([ -n "$default_branch" ] && echo ", or 'd'")${RESET}"
-            fi
-            ;;
-          *)
-            echo -e "${RED}Invalid choice. Please enter a number between 0 and ${#branch_array[@]}$([ -n "$default_branch" ] && echo ", or 'd'")${RESET}"
-            ;;
-        esac
-      done
+    local repo_url=$1
+    local default_branch=$2
+    local selected_branch=""
+    echo -e "\n${YELLOW}=== Branch Selection for $repo_url ===${RESET}"
+    if ask_confirm "Select a specific branch? (y/n) [n]: " "n"; then
+        if list_branches "$repo_url"; then
+            echo -e "${CYAN}Options:${RESET}"
+            echo "0) Use default branch (HEAD)"
+            [ -n "$default_branch" ] && echo "d) Use script default: $default_branch"
+            while true; do
+                read -rp "Enter choice (0, d, or branch number): " choice
+                case "$choice" in
+                    0)
+                        selected_branch=""
+                        echo -e "${GREEN}[SELECTED] Default branch (HEAD)${RESET}"
+                        break
+                        ;;
+                    [Dd])
+                        if [ -n "$default_branch" ]; then
+                            selected_branch="$default_branch"
+                            echo -e "${GREEN}[SELECTED] Script default: $default_branch${RESET}"
+                            break
+                        else
+                            echo -e "${RED}No script default branch available${RESET}"
+                        fi
+                        ;;
+                    [1-9]*)
+                        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#branch_array[@]}" ]; then
+                            selected_branch="${branch_array[$((choice-1))]}"
+                            echo -e "${GREEN}[SELECTED] Branch: $selected_branch${RESET}"
+                            break
+                        else
+                            echo -e "${RED}Invalid choice. Enter a number between 0 and ${#branch_array[@]}$([ -n "$default_branch" ] && echo ", or 'd'")${RESET}"
+                        fi
+                        ;;
+                    *)
+                        echo -e "${RED}Invalid choice. Enter a number between 0 and ${#branch_array[@]}$([ -n "$default_branch" ] && echo ", or 'd'")${RESET}"
+                        ;;
+                esac
+            done
+        else
+            selected_branch="$default_branch"
+            echo -e "${YELLOW}[WARNING] Could not fetch branches, using default: ${selected_branch:-HEAD}${RESET}"
+        fi
     else
-      echo -e "${YELLOW}[WARNING] Could not fetch branches, using default branch${RESET}"
-      selected_branch="$default_branch"
+        selected_branch="$default_branch"
+        echo -e "${GREEN}[SELECTED] Using ${selected_branch:-default branch}${RESET}"
     fi
-  else
-    selected_branch="$default_branch"
-    echo -e "${GREEN}[SELECTED] Using ${selected_branch:-default branch}${RESET}"
-  fi
-  
-  echo "$selected_branch"
+    echo "$selected_branch"
 }
 
 # Function to perform cloning
 do_clone() {
-  local repo_url=$1
-  local target_dir=$2
-  local branch=$3
-
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "[CLONE INFO]"
-  echo "➤ Target Directory : $target_dir"
-  echo "➤ Repository URL   : $repo_url"
-  echo "➤ Branch           : ${branch:-default (HEAD)}"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  if ! git ls-remote "$repo_url" &> /dev/null; then
-    echo -e "${RED}[✘] Cannot access $repo_url. Check the connection or URL.${RESET}"
-    exit 1
-  fi
-
-  if [ -n "$branch" ]; then
-    git clone -b "$branch" "$repo_url" "$target_dir"
-  else
-    git clone "$repo_url" "$target_dir"
-  fi
-
-  if [ $? -eq 0 ]; then
-    echo -e "${GREEN}[✔] Clone completed to $target_dir${RESET}"
-  else
-    echo -e "${RED}[✘] Failed to clone from $repo_url${RESET}"
-    exit 1
-  fi
+    local repo_url=$1
+    local target_dir=$2
+    local branch=$3
+    echo -e "\n${BLUE}Cloning $repo_url to $target_dir (Branch: ${branch:-HEAD})...${RESET}"
+    if ! git ls-remote "$repo_url" &>/dev/null; then
+        echo -e "${RED}[ERROR] Cannot access $repo_url. Check URL or connection.${RESET}"
+        exit 1
+    fi
+    if [ -n "$branch" ]; then
+        git clone -b "$branch" "$repo_url" "$target_dir"
+    else
+        git clone "$repo_url" "$target_dir"
+    fi
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}[SUCCESS] Cloned to $target_dir${RESET}"
+    else
+        echo -e "${RED}[ERROR] Failed to clone $repo_url${RESET}"
+        exit 1
+    fi
 }
 
-# Function to validate before cloning
+# Function to validate and clone repository
 clone_repo() {
-  local repo_url=$1
-  local target_dir=$2
-  local default_branch=$3
-  
-  # Select branch interactively
-  local selected_branch=$(select_branch "$repo_url" "$default_branch")
-
-  if [ -d "$target_dir/.git" ]; then
-    echo "[INFO] Directory $target_dir already exists. Validating..."
-    pushd "$target_dir" > /dev/null
-
-    current_url=$(git config --get remote.origin.url 2>/dev/null)
-    current_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
-
-    echo "[CHECK] Current URL    : $current_url"
-    echo "[CHECK] Expected URL   : $repo_url"
-    echo "[CHECK] Current Branch : $current_branch"
-    echo "[CHECK] Expected Branch: ${selected_branch:-<default>}"
-
-    if [[ "$current_url" == "$repo_url" && ( -z "$selected_branch" || "$current_branch" == "$selected_branch" ) ]]; then
-      read -rp "Repository match. Skip or re-clone? (s = skip, r = re-clone) [s]: " action
-      action=${action:-s}
-      case "$action" in
-        [Rr])
-          echo "[ACTION] Re-cloning $target_dir ..."
-          popd > /dev/null
-          rm -rf "$target_dir"
-          do_clone "$repo_url" "$target_dir" "$selected_branch"
-          ;;
-        *)
-          echo "[SKIP] Skipping $target_dir"
-          popd > /dev/null
-          ;;
-      esac
-    else
-      echo -e "${YELLOW}[WARNING] Repository mismatch detected!${RESET}"
-      if ask_confirm "Delete and re-clone $target_dir? (y/n): " "n"; then
-        popd > /dev/null
-        rm -rf "$target_dir"
-        do_clone "$repo_url" "$target_dir" "$selected_branch"
-      else
-        echo "[SKIP] Skipping $target_dir"
-        popd > /dev/null
-      fi
+    local repo_url=$1
+    local target_dir=$2
+    local default_branch=$3
+    local selected_branch=$(select_branch "$repo_url" "$default_branch")
+    if [ -d "$target_dir/.git" ]; then
+        echo -e "${CYAN}[INFO] Directory $target_dir exists. Checking...${RESET}"
+        pushd "$target_dir" >/dev/null
+        local current_url=$(git config --get remote.origin.url)
+        local current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "HEAD")
+        popd >/dev/null
+        if [[ "$current_url" == "$repo_url" && ( -z "$selected_branch" || "$current_branch" == "$selected_branch" ) ]]; then
+            if ask_confirm "Repository matches. Skip or re-clone? (s/r) [s]: " "s"; then
+                echo -e "${CYAN}[SKIP] $target_dir already up to date${RESET}"
+                return
+            fi
+            rm -rf "$target_dir"
+        else
+            echo -e "${YELLOW}[WARNING] Repository or branch mismatch in $target_dir${RESET}"
+            if ask_confirm "Delete and re-clone $target_dir? (y/n) [n]: " "n"; then
+                rm -rf "$target_dir"
+            else
+                echo -e "${CYAN}[SKIP] Keeping existing $target_dir${RESET}"
+                return
+            fi
+        fi
     fi
-  else
     do_clone "$repo_url" "$target_dir" "$selected_branch"
-  fi
-
-  echo
 }
 
 # KernelSU-Next + SUSFS patch for redbull
 setup_kernelsu_susfs_redbull() {
-  set -e
-
-  echo
-  echo -e "${YELLOW}=== Setting up KernelSU-Next + SUSFS for Redbull Kernel ===${RESET}"
-
-  echo ">>> [1/9] Entering directory kernel/google/redbull"
-  cd kernel/google/redbull || { echo -e "${RED}Directory not found!${RESET}"; exit 1; }
-
-  echo ">>> [2/9] Downloading KernelSU-Next v1.0.3"
-  curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s v1.0.3
-
-  echo ">>> [3/9] Entering KernelSU-Next"
-  cd KernelSU-Next
-
-  echo ">>> [4/9] Downloading SUSFS patch v1.5.3"
-  curl -o 0001-Kernel-Implement-SUSFS-v1.5.3.patch https://github.com/sidex15/KernelSU-Next/commit/1e750de25930e875612bbec0410de0088474c00b.patch
-  if [ ! -s 0001-Kernel-Implement-SUSFS-v1.5.3.patch ]; then
-    echo -e "${RED}[✘] Failed to download SUSFS patch${RESET}"
-    exit 1
-  fi
-
-  echo ">>> [5/9] Applying SUSFS patch to KernelSU-Next"
-  patch -p1 < 0001-Kernel-Implement-SUSFS-v1.5.3.patch
-
-  echo ">>> [6/9] Returning to redbull kernel root"
-  cd ..
-
-  echo ">>> [7/9] Cloning SUSFS for kernel 4.19"
-  git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.19
-
-  echo ">>> [8/9] Copying fs/ and include/linux/ files"
-  cp -v susfs4ksu/kernel_patches/fs/* fs/
-  cp -v susfs4ksu/kernel_patches/include/linux/* include/linux/
-
-  echo ">>> [9/9] Applying 50_add_susfs_in_kernel-4.19.patch"
-  cp -v susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch .
-  patch -p1 < 50_add_susfs_in_kernel-4.19.patch
-
-  echo -e "${GREEN}>>> ✅ Done! KernelSU-Next + SUSFS has been successfully applied.${RESET}"
-  echo
+    set -e
+    echo -e "\n${YELLOW}=== Applying KernelSU-Next + SUSFS for Redbull ===${RESET}"
+    mkdir -p kernel/google/redbull
+    cd kernel/google/redbull || { echo -e "${RED}[ERROR] Directory not found${RESET}"; exit 1; }
+    echo -e "${CYAN}[1/6] Downloading KernelSU-Next v1.0.3${RESET}"
+    curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s v1.0.3
+    cd KernelSU-Next
+    echo -e "${CYAN}[2/6] Downloading SUSFS patch v1.5.3${RESET}"
+    curl -o susfs.patch https://github.com/sidex15/KernelSU-Next/commit/1e750de25930e875612bbec0410de0088474c00b.patch
+    if [ ! -s susfs.patch ]; then
+        echo -e "${RED}[ERROR] Failed to download SUSFS patch${RESET}"
+        exit 1
+    fi
+    echo -e "${CYAN}[3/6] Applying SUSFS patch${RESET}"
+    patch -p1 < susfs.patch
+    cd ..
+    echo -e "${CYAN}[4/6] Cloning SUSFS for kernel 4.19${RESET}"
+    git clone -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git
+    echo -e "${CYAN}[5/6] Copying SUSFS files${RESET}"
+    cp -rv susfs4ksu/kernel_patches/fs/* fs/
+    cp -rv susfs4ksu/kernel_patches/include/linux/* include/linux/
+    echo -e "${CYAN}[6/6] Applying SUSFS kernel patch${RESET}"
+    cp -v susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch .
+    patch -p1 < 50_add_susfs_in_kernel-4.19.patch
+    echo -e "${GREEN}[SUCCESS] KernelSU-Next + SUSFS applied${RESET}"
 }
 
-# Function to select repository with clearer display
+# Function to select repository
 select_repo() {
-  local component_name=$1
-  local custom_repo=$2
-  local custom_branch=$3
-  local official_repo=$4
-  local official_branch=$5
-  
-  echo
-  echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${CYAN}║                        ${component_name} Repository Selection                                    ║${RESET}"
-  echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════════════════════════════════════╣${RESET}"
-  echo -e "${CYAN}║${RESET} ${YELLOW}1) Custom Repository${RESET}                                                                      ${CYAN}║${RESET}"
-  echo -e "${CYAN}║${RESET}    URL: ${custom_repo}${RESET}"
-  [ -n "$custom_branch" ] && echo -e "${CYAN}║${RESET}    Default Branch: ${custom_branch}${RESET}"
-  echo -e "${CYAN}║${RESET}                                                                                           ${CYAN}║${RESET}"
-  echo -e "${CYAN}║${RESET} ${YELLOW}2) Official Repository${RESET}                                                                   ${CYAN}║${RESET}"
-  echo -e "${CYAN}║${RESET}    URL: ${official_repo}${RESET}"
-  [ -n "$official_branch" ] && echo -e "${CYAN}║${RESET}    Default Branch: ${official_branch}${RESET}"
-  echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════════════════════════════╝${RESET}"
-  echo
-  
-  while true; do
-    read -rp "Select repository for ${component_name} (1 or 2): " choice
-    case "$choice" in
-      1)
-        echo -e "${GREEN}[SELECTED] Custom: ${custom_repo}${RESET}"
-        echo "${custom_repo}|${custom_branch}"
-        return 0
-        ;;
-      2)
-        echo -e "${GREEN}[SELECTED] Official: ${official_repo}${RESET}"
-        echo "${official_repo}|${official_branch}"
-        return 0
-        ;;
-      *)
-        echo -e "${RED}Invalid choice. Please enter 1 or 2.${RESET}"
-        ;;
-    esac
-  done
+    local component_name=$1
+    local custom_repo=$2
+    local custom_branch=$3
+    local official_repo=$4
+    local official_branch=$5
+    echo -e "\n${CYAN}=== $component_name Repository Selection ===${RESET}"
+    echo -e "${YELLOW}1) Custom: ${custom_repo}${RESET}"
+    [ -n "$custom_branch" ] && echo -e "${BLUE}   Default Branch: $custom_branch${RESET}"
+    echo -e "${YELLOW}2) Official: ${official_repo}${RESET}"
+    [ -n "$official_branch" ] && echo -e "${BLUE}   Default Branch: $official_branch${RESET}"
+    while true; do
+        read -rp "Select repository (1 or 2): " choice
+        case "$choice" in
+            1) echo -e "${GREEN}[SELECTED] Custom: ${custom_repo}${RESET}"; echo "${custom_repo}|${custom_branch}"; return 0 ;;
+            2) echo -e "${GREEN}[SELECTED] Official: ${official_repo}${RESET}"; echo "${official_repo}|${official_branch}"; return 0 ;;
+            *) echo -e "${RED}Invalid choice. Enter 1 or 2.${RESET}" ;;
+        esac
+    done
 }
 
 # Clone functions per device
 clone_bramble() {
-  echo
-  echo -e "${GREEN}🟢 Device: Bramble (Google Pixel 4a 5G)${RESET}"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  
-  # Device Bramble
-  local bramble_repo=$(select_repo "Device Bramble" \
-    "https://github.com/Bias8145/android_device_google_bramble.git" "" \
-    "https://github.com/LineageOS/android_device_google_bramble.git" "")
-  IFS='|' read -r bramble_url bramble_branch <<< "$bramble_repo"
-  
-  # Device Redbull
-  local redbull_repo=$(select_repo "Device Redbull" \
-    "https://github.com/Bias8145/android_device_google_redbull.git" "" \
-    "https://github.com/LineageOS/android_device_google_redbull.git" "")
-  IFS='|' read -r redbull_url redbull_branch <<< "$redbull_repo"
-  
-  # GS Common (always LineageOS)
-  echo
-  echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
-  echo "Using LineageOS (standard for all devices)"
-  local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
-  local gs_common_branch=""
-  
-  # Vendor Bramble
-  local vendor_repo=$(select_repo "Vendor Bramble" \
-    "https://github.com/Bias8145/proprietary_vendor_google_bramble.git" "" \
-    "https://github.com/TheMuppets/proprietary_vendor_google_bramble.git" "")
-  IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
-  
-  # Kernel Redbull
-  local kernel_repo=$(select_repo "Kernel Redbull" \
-    "https://github.com/Bias8145/android_kernel_google_redbull.git" "susfs" \
-    "https://github.com/LineageOS/android_kernel_google_redbull.git" "")
-  IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
-  
-  echo
-  echo -e "${YELLOW}=== Starting Clone Process ===${RESET}"
-  
-  # Execute cloning
-  clone_repo "$bramble_url" device/google/bramble "$bramble_branch"
-  clone_repo "$redbull_url" device/google/redbull "$redbull_branch"
-  clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
-  clone_repo "$vendor_url" vendor/google/bramble "$vendor_branch"
-  clone_repo "$kernel_url" kernel/google/redbull "$kernel_branch"
+    echo -e "\n${GREEN}=== Cloning for Bramble (Pixel 4a 5G) ===${RESET}"
+    local bramble_repo=$(select_repo "Device Bramble" \
+        "https://github.com/Bias8145/android_device_google_bramble.git" "" \
+        "https://github.com/LineageOS/android_device_google_bramble.git" "")
+    IFS='|' read -r bramble_url bramble_branch <<< "$bramble_repo"
+    local redbull_repo=$(select_repo "Device Redbull" \
+        "https://github.com/Bias8145/android_device_google_redbull.git" "" \
+        "https://github.com/LineageOS/android_device_google_redbull.git" "")
+    IFS='|' read -r redbull_url redbull_branch <<< "$redbull_repo"
+    local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
+    local gs_common_branch=""
+    local vendor_repo=$(select_repo "Vendor Bramble" \
+        "https://github.com/Bias8145/proprietary_vendor_google_bramble.git" "" \
+        "https://github.com/TheMuppets/proprietary_vendor_google_bramble.git" "")
+    IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
+    local kernel_repo=$(select_repo "Kernel Redbull" \
+        "https://github.com/Bias8145/android_kernel_google_redbull.git" "susfs" \
+        "https://github.com/LineageOS/android_kernel_google_redbull.git" "")
+    IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
+    clone_repo "$bramble_url" device/google/bramble "$bramble_branch"
+    clone_repo "$redbull_url" device/google/redbull "$redbull_branch"
+    clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
+    clone_repo "$vendor_url" vendor/google/bramble "$vendor_branch"
+    clone_repo "$kernel_url" kernel/google/redbull "$kernel_branch"
+    setup_kernelsu_susfs_redbull
 }
 
 clone_coral() {
-  echo
-  echo -e "${GREEN}🟢 Device: Coral (Google Pixel 4 XL)${RESET}"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  
-  # Device Coral
-  local coral_repo=$(select_repo "Device Coral" \
-    "https://github.com/Bias8145/android_device_google_coral.git" "aosp" \
-    "https://github.com/LineageOS/android_device_google_coral.git" "")
-  IFS='|' read -r coral_url coral_branch <<< "$coral_repo"
-  
-  # GS Common (always LineageOS)
-  echo
-  echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
-  echo "Using LineageOS (standard for all devices)"
-  local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
-  local gs_common_branch=""
-  
-  # Vendor Coral
-  local vendor_repo=$(select_repo "Vendor Coral" \
-    "https://github.com/Bias8145/proprietary_vendor_google_coral.git" "" \
-    "https://github.com/TheMuppets/proprietary_vendor_google_coral.git" "")
-  IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
-  
-  # Kernel MSM-4.14
-  local kernel_repo=$(select_repo "Kernel MSM-4.14" \
-    "https://github.com/Bias8145/android_kernel_google_msm-4.14.git" "eclipse-Q2" \
-    "https://github.com/LineageOS/android_kernel_google_msm-4.14.git" "")
-  IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
-  
-  echo
-  echo -e "${YELLOW}=== Starting Clone Process ===${RESET}"
-  
-  # Execute cloning
-  clone_repo "$coral_url" device/google/coral "$coral_branch"
-  clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
-  clone_repo "$vendor_url" vendor/google/coral "$vendor_branch"
-  clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
+    echo -e "\n${GREEN}=== Cloning for Coral (Pixel 4 XL) ===${RESET}"
+    local coral_repo=$(select_repo "Device Coral" \
+        "https://github.com/Bias8145/android_device_google_coral.git" "aosp" \
+        "https://github.com/LineageOS/android_device_google_coral.git" "")
+    IFS='|' read -r coral_url coral_branch <<< "$coral_repo"
+    local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
+    local gs_common_branch=""
+    local vendor_repo=$(select_repo "Vendor Coral" \
+        "https://github.com/Bias8145/proprietary_vendor_google_coral.git" "" \
+        "https://github.com/TheMuppets/proprietary_vendor_google_coral.git" "")
+    IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
+    local kernel_repo=$(select_repo "Kernel MSM-4.14" \
+        "https://github.com/Bias8145/android_kernel_google_msm-4.14.git" "eclipse-Q2" \
+        "https://github.com/LineageOS/android_kernel_google_msm-4.14.git" "")
+    IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
+    clone_repo "$coral_url" device/google/coral "$coral_branch"
+    clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
+    clone_repo "$vendor_url" vendor/google/coral "$vendor_branch"
+    clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
 }
 
 clone_flame() {
-  echo
-  echo -e "${GREEN}🟢 Device: Flame (Google Pixel 4)${RESET}"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  
-  # Device Coral (shared with Flame)
-  local coral_repo=$(select_repo "Device Coral (shared)" \
-    "https://github.com/Bias8145/android_device_google_coral.git" "aosp" \
-    "https://github.com/LineageOS/android_device_google_coral.git" "")
-  IFS='|' read -r coral_url coral_branch <<< "$coral_repo"
-  
-  # GS Common (always LineageOS)
-  echo
-  echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
-  echo "Using LineageOS (standard for all devices)"
-  local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
-  local gs_common_branch=""
-  
-  # Vendor Flame
-  local vendor_repo=$(select_repo "Vendor Flame" \
-    "https://github.com/Bias8145/proprietary_vendor_google_flame.git" "" \
-    "https://github.com/TheMuppets/proprietary_vendor_google_flame.git" "")
-  IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
-  
-  # Kernel MSM-4.14
-  local kernel_repo=$(select_repo "Kernel MSM-4.14" \
-    "https://github.com/Bias8145/android_kernel_google_msm-4.14.git" "eclipse-Q2" \
-    "https://github.com/LineageOS/android_kernel_google_msm-4.14.git" "")
-  IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
-  
-  echo
-  echo -e "${YELLOW}=== Starting Clone Process ===${RESET}"
-  
-  # Execute cloning
-  clone_repo "$coral_url" device/google/coral "$coral_branch"
-  clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
-  clone_repo "$vendor_url" vendor/google/flame "$vendor_branch"
-  clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
+    echo -e "\n${GREEN}=== Cloning for Flame (Pixel 4) ===${RESET}"
+    local coral_repo=$(select_repo "Device Coral (shared)" \
+        "https://github.com/Bias8145/android_device_google_coral.git" "aosp" \
+        "https://github.com/LineageOS/android_device_google_coral.git" "")
+    IFS='|' read -r coral_url coral_branch <<< "$coral_repo"
+    local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
+    local gs_common_branch=""
+    local vendor_repo=$(select_repo "Vendor Flame" \
+        "https://github.com/Bias8145/proprietary_vendor_google_flame.git" "" \
+        "https://github.com/TheMuppets/proprietary_vendor_google_flame.git" "")
+    IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
+    local kernel_repo=$(select_repo "Kernel MSM-4.14" \
+        "https://github.com/Bias8145/android_kernel_google_msm-4.14.git" "eclipse-Q2" \
+        "https://github.com/LineageOS/android_kernel_google_msm-4.14.git" "")
+    IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
+    clone_repo "$coral_url" device/google/coral "$coral_branch"
+    clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
+    clone_repo "$vendor_url" vendor/google/flame "$vendor_branch"
+    clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
 }
 
 clone_sunfish() {
-  echo
-  echo -e "${GREEN}🟢 Device: Sunfish (Google Pixel 4a 4G)${RESET}"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  
-  # Device Sunfish
-  local sunfish_repo=$(select_repo "Device Sunfish" \
-    "https://github.com/Bias8145/android_device_google_sunfish.git" "" \
-    "https://github.com/LineageOS/android_device_google_sunfish.git" "")
-  IFS='|' read -r sunfish_url sunfish_branch <<< "$sunfish_repo"
-  
-  # GS Common (always LineageOS)
-  echo
-  echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
-  echo "Using LineageOS (standard for all devices)"
-  local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
-  local gs_common_branch=""
-  
-  # Vendor Sunfish
-  local vendor_repo=$(select_repo "Vendor Sunfish" \
-    "https://github.com/Bias8145/proprietary_vendor_google_sunfish.git" "" \
-    "https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git" "")
-  IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
-  
-  # Kernel MSM-4.14
-  local kernel_repo=$(select_repo "Kernel MSM-4.14" \
-    "https://github.com/Bias8145/android_kernel_google_msm-4.14.git" "eclipse-Q2" \
-    "https://github.com/LineageOS/android_kernel_google_msm-4.14.git" "")
-  IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
-  
-  echo
-  echo -e "${YELLOW}=== Starting Clone Process ===${RESET}"
-  
-  # Execute cloning
-  clone_repo "$sunfish_url" device/google/sunfish "$sunfish_branch"
-  clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
-  clone_repo "$vendor_url" vendor/google/sunfish "$vendor_branch"
-  clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
+    echo -e "\n${GREEN}=== Cloning for Sunfish (Pixel 4a 4G) ===${RESET}"
+    local sunfish_repo=$(select_repo "Device Sunfish" \
+        "https://github.com/Bias8145/android_device_google_sunfish.git" "" \
+        "https://github.com/LineageOS/android_device_google_sunfish.git" "")
+    IFS='|' read -r sunfish_url sunfish_branch <<< "$sunfish_repo"
+    local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
+    local gs_common_branch=""
+    local vendor_repo=$(select_repo "Vendor Sunfish" \
+        "https://github.com/Bias8145/proprietary_vendor_google_sunfish.git" "" \
+        "https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git" "")
+    IFS='|' read -r vendor_url vendor_branch <<< "$vendor_repo"
+    local kernel_repo=$(select_repo "Kernel MSM-4.14" \
+        "https://github.com/Bias8145/android_kernel_google_msm-4.14.git" "eclipse-Q2" \
+        "https://github.com/LineageOS/android_kernel_google_msm-4.14.git" "")
+    IFS='|' read -r kernel_url kernel_branch <<< "$kernel_repo"
+    clone_repo "$sunfish_url" device/google/sunfish "$sunfish_branch"
+    clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
+    clone_repo "$vendor_url" vendor/google/sunfish "$vendor_branch"
+    clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
 }
 
 # Interactive menu
-echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════════════════════════════════╗${RESET}"
-echo -e "${CYAN}║                                   Device Selection                                           ║${RESET}"
-echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════════════════════════════════════╣${RESET}"
-echo -e "${CYAN}║${RESET} ${YELLOW}1) Bramble${RESET} - Google Pixel 4a 5G                                                          ${CYAN}║${RESET}"
-echo -e "${CYAN}║${RESET} ${YELLOW}2) Coral${RESET}   - Google Pixel 4 XL                                                           ${CYAN}║${RESET}"
-echo -e "${CYAN}║${RESET} ${YELLOW}3) Flame${RESET}   - Google Pixel 4                                                              ${CYAN}║${RESET}"
-echo -e "${CYAN}║${RESET} ${YELLOW}4) Sunfish${RESET} - Google Pixel 4a 4G                                                         ${CYAN}║${RESET}"
-echo -e "${CYAN}║${RESET} ${RED}5) Cancel${RESET}                                                                                 ${CYAN}║${RESET}"
-echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════════════════════════════╝${RESET}"
-echo
-
+echo -e "${CYAN}┌────────────────── Device Selection ──────────────────┐${RESET}"
+echo -e "${CYAN}│${RESET} ${YELLOW}1) Bramble${RESET} - Google Pixel 4a 5G                  ${CYAN}│${RESET}"
+echo -e "${CYAN}│${RESET} ${YELLOW}2) Coral${RESET}   - Google Pixel 4 XL                  ${CYAN}│${RESET}"
+echo -e "${CYAN}│${RESET} ${YELLOW}3) Flame${RESET}   - Google Pixel 4                     ${CYAN}│${RESET}"
+echo -e "${CYAN}│${RESET} ${YELLOW}4) Sunfish${RESET} - Google Pixel 4a 4G                 ${CYAN}│${RESET}"
+echo -e "${CYAN}│${RESET} ${RED}5) Cancel${RESET}                                    ${CYAN}│${RESET}"
+echo -e "${CYAN}└─────────────────────────────────────────────────────┘${RESET}"
 read -rp "Enter your choice (1-5): " choice
 echo
 
 case "$choice" in
-  1) echo -e "${GREEN}[SELECTED] Bramble${RESET}" ; clone_bramble ;;
-  2) echo -e "${GREEN}[SELECTED] Coral${RESET}"   ; clone_coral ;;
-  3) echo -e "${GREEN}[SELECTED] Flame${RESET}"   ; clone_flame ;;
-  4) echo -e "${GREEN}[SELECTED] Sunfish${RESET}" ; clone_sunfish ;;
-  *) echo -e "${RED}[CANCELLED] No repo was processed.${RESET}" ;;
+    1) echo -e "${GREEN}[SELECTED] Bramble${RESET}"; clone_bramble ;;
+    2) echo -e "${GREEN}[SELECTED] Coral${RESET}"; clone_coral ;;
+    3) echo -e "${GREEN}[SELECTED] Flame${RESET}"; clone_flame ;;
+    4) echo -e "${GREEN}[SELECTED] Sunfish${RESET}"; clone_sunfish ;;
+    *) echo -e "${RED}[CANCELLED] No repositories processed${RESET}"; exit 0 ;;
 esac
 
-echo -e "${GREEN}=== All operations completed ===${RESET}"
+echo -e "\n${GREEN}=== All operations completed ===${RESET}"
