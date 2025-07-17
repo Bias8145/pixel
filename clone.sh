@@ -269,7 +269,7 @@ setup_kernelsu_susfs_redbull() {
   echo
 }
 
-# Function to select repository for each component
+# Function to select repository with clearer display
 select_repo() {
   local component_name=$1
   local custom_repo=$2
@@ -278,22 +278,30 @@ select_repo() {
   local official_branch=$5
   
   echo
-  echo -e "${CYAN}=== $component_name Repository Selection ===${RESET}"
-  echo "1) Custom  : $custom_repo"
-  echo "2) Official: $official_repo"
+  echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════════════════════════════════╗${RESET}"
+  echo -e "${CYAN}║                        ${component_name} Repository Selection                                    ║${RESET}"
+  echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════════════════════════════════════╣${RESET}"
+  echo -e "${CYAN}║${RESET} ${YELLOW}1) Custom Repository${RESET}                                                                      ${CYAN}║${RESET}"
+  echo -e "${CYAN}║${RESET}    URL: ${custom_repo}${RESET}"
+  [ -n "$custom_branch" ] && echo -e "${CYAN}║${RESET}    Default Branch: ${custom_branch}${RESET}"
+  echo -e "${CYAN}║${RESET}                                                                                           ${CYAN}║${RESET}"
+  echo -e "${CYAN}║${RESET} ${YELLOW}2) Official Repository${RESET}                                                                   ${CYAN}║${RESET}"
+  echo -e "${CYAN}║${RESET}    URL: ${official_repo}${RESET}"
+  [ -n "$official_branch" ] && echo -e "${CYAN}║${RESET}    Default Branch: ${official_branch}${RESET}"
+  echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════════════════════════════╝${RESET}"
   echo
   
   while true; do
-    read -rp "Select repository for $component_name (1-2): " choice
+    read -rp "Select repository for ${component_name} (1 or 2): " choice
     case "$choice" in
       1)
-        echo "[SELECTED] Custom: $custom_repo"
-        echo "$custom_repo|$custom_branch"
+        echo -e "${GREEN}[SELECTED] Custom: ${custom_repo}${RESET}"
+        echo "${custom_repo}|${custom_branch}"
         return 0
         ;;
       2)
-        echo "[SELECTED] Official: $official_repo"
-        echo "$official_repo|$official_branch"
+        echo -e "${GREEN}[SELECTED] Official: ${official_repo}${RESET}"
+        echo "${official_repo}|${official_branch}"
         return 0
         ;;
       *)
@@ -306,7 +314,7 @@ select_repo() {
 # Clone functions per device
 clone_bramble() {
   echo
-  echo -e "🟢 Device: Bramble (Google Pixel 4a 5G)"
+  echo -e "${GREEN}🟢 Device: Bramble (Google Pixel 4a 5G)${RESET}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   
   # Device Bramble
@@ -325,6 +333,8 @@ clone_bramble() {
   echo
   echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
   echo "Using LineageOS (standard for all devices)"
+  local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
+  local gs_common_branch=""
   
   # Vendor Bramble
   local vendor_repo=$(select_repo "Vendor Bramble" \
@@ -344,14 +354,14 @@ clone_bramble() {
   # Execute cloning
   clone_repo "$bramble_url" device/google/bramble "$bramble_branch"
   clone_repo "$redbull_url" device/google/redbull "$redbull_branch"
-  clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
+  clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
   clone_repo "$vendor_url" vendor/google/bramble "$vendor_branch"
   clone_repo "$kernel_url" kernel/google/redbull "$kernel_branch"
 }
 
 clone_coral() {
   echo
-  echo "🟢 Device: Coral (Google Pixel 4 XL)"
+  echo -e "${GREEN}🟢 Device: Coral (Google Pixel 4 XL)${RESET}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   
   # Device Coral
@@ -364,6 +374,8 @@ clone_coral() {
   echo
   echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
   echo "Using LineageOS (standard for all devices)"
+  local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
+  local gs_common_branch=""
   
   # Vendor Coral
   local vendor_repo=$(select_repo "Vendor Coral" \
@@ -382,14 +394,14 @@ clone_coral() {
   
   # Execute cloning
   clone_repo "$coral_url" device/google/coral "$coral_branch"
-  clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
+  clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
   clone_repo "$vendor_url" vendor/google/coral "$vendor_branch"
   clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
 }
 
 clone_flame() {
   echo
-  echo "🟢 Device: Flame (Google Pixel 4)"
+  echo -e "${GREEN}🟢 Device: Flame (Google Pixel 4)${RESET}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   
   # Device Coral (shared with Flame)
@@ -402,6 +414,8 @@ clone_flame() {
   echo
   echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
   echo "Using LineageOS (standard for all devices)"
+  local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
+  local gs_common_branch=""
   
   # Vendor Flame
   local vendor_repo=$(select_repo "Vendor Flame" \
@@ -420,14 +434,14 @@ clone_flame() {
   
   # Execute cloning
   clone_repo "$coral_url" device/google/coral "$coral_branch"
-  clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
+  clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
   clone_repo "$vendor_url" vendor/google/flame "$vendor_branch"
   clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
 }
 
 clone_sunfish() {
   echo
-  echo "🟢 Device: Sunfish (Google Pixel 4a 4G)"
+  echo -e "${GREEN}🟢 Device: Sunfish (Google Pixel 4a 4G)${RESET}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   
   # Device Sunfish
@@ -440,6 +454,8 @@ clone_sunfish() {
   echo
   echo -e "${CYAN}=== Device GS-Common Repository ===${RESET}"
   echo "Using LineageOS (standard for all devices)"
+  local gs_common_url="https://github.com/LineageOS/android_device_google_gs-common.git"
+  local gs_common_branch=""
   
   # Vendor Sunfish
   local vendor_repo=$(select_repo "Vendor Sunfish" \
@@ -458,28 +474,32 @@ clone_sunfish() {
   
   # Execute cloning
   clone_repo "$sunfish_url" device/google/sunfish "$sunfish_branch"
-  clone_repo https://github.com/LineageOS/android_device_google_gs-common.git device/google/gs-common
+  clone_repo "$gs_common_url" device/google/gs-common "$gs_common_branch"
   clone_repo "$vendor_url" vendor/google/sunfish "$vendor_branch"
   clone_repo "$kernel_url" kernel/google/msm-4.14 "$kernel_branch"
 }
 
 # Interactive menu
-echo "Select device to clone:"
-echo "1) Bramble (Pixel 4a 5G)"
-echo "2) Coral   (Pixel 4 XL)"
-echo "3) Flame   (Pixel 4)"
-echo "4) Sunfish (Pixel 4a 4G)"
-echo "5) Cancel"
+echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════════════════════════════════╗${RESET}"
+echo -e "${CYAN}║                                   Device Selection                                           ║${RESET}"
+echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════════════════════════════════════╣${RESET}"
+echo -e "${CYAN}║${RESET} ${YELLOW}1) Bramble${RESET} - Google Pixel 4a 5G                                                          ${CYAN}║${RESET}"
+echo -e "${CYAN}║${RESET} ${YELLOW}2) Coral${RESET}   - Google Pixel 4 XL                                                           ${CYAN}║${RESET}"
+echo -e "${CYAN}║${RESET} ${YELLOW}3) Flame${RESET}   - Google Pixel 4                                                              ${CYAN}║${RESET}"
+echo -e "${CYAN}║${RESET} ${YELLOW}4) Sunfish${RESET} - Google Pixel 4a 4G                                                         ${CYAN}║${RESET}"
+echo -e "${CYAN}║${RESET} ${RED}5) Cancel${RESET}                                                                                 ${CYAN}║${RESET}"
+echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════════════════════════════════╝${RESET}"
+echo
 
 read -rp "Enter your choice (1-5): " choice
 echo
 
 case "$choice" in
-  1) echo "[SELECTED] Bramble" ; clone_bramble ;;
-  2) echo "[SELECTED] Coral"   ; clone_coral ;;
-  3) echo "[SELECTED] Flame"   ; clone_flame ;;
-  4) echo "[SELECTED] Sunfish" ; clone_sunfish ;;
-  *) echo "[CANCELLED] No repo was processed." ;;
+  1) echo -e "${GREEN}[SELECTED] Bramble${RESET}" ; clone_bramble ;;
+  2) echo -e "${GREEN}[SELECTED] Coral${RESET}"   ; clone_coral ;;
+  3) echo -e "${GREEN}[SELECTED] Flame${RESET}"   ; clone_flame ;;
+  4) echo -e "${GREEN}[SELECTED] Sunfish${RESET}" ; clone_sunfish ;;
+  *) echo -e "${RED}[CANCELLED] No repo was processed.${RESET}" ;;
 esac
 
 echo -e "${GREEN}=== All operations completed ===${RESET}"
