@@ -102,25 +102,4 @@ Combine with CI tools (GitHub Actions, Jenkins) for automated builds + uploads.
 
 Keys are generated without password by default (useful for non-interactive builds).
 
-
-
 ---
-
-## 📣 Credits
-
-Maintained by Bias8145
-Inspired by:
-
-LineageOS build system
-Pixel 4 Series communities
-KernelSU-Next + SUSFS integrations
-
----
-
-## 📄 License
-
-This project is licensed under MIT. Feel free to fork or contribute.
-
-✅ README.md has been updated to reflect your actual repository link: Bias8145/pixel, with direct links to each script file for easy GitHub access.
-
-Let me know if you want a Bahasa Indonesia version or additional badges like "Build passing", "License", or "Supported Devices".
