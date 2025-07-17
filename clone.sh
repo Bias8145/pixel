@@ -6,6 +6,7 @@ RED="\033[0;31m"
 YELLOW="\033[1;33m"
 BLUE="\033[0;34m"
 CYAN="\033[0;36m"
+MAGENTA="\033[0;35m"
 RESET="\033[0m"
 
 trap "echo; echo '[ABORTED] Process cancelled by user'; exit 1" INT
@@ -39,28 +40,36 @@ ask_confirm() {
   done
 }
 
-# Function to list available branches
+# Function to list available branches with improved formatting
 list_branches() {
   local repo_url=$1
   echo -e "${CYAN}[INFO] Fetching available branches from repository...${RESET}"
+  echo -e "${BLUE}Repository: ${RESET}$repo_url"
+  echo
   
   # Get remote branches, clean up output
   local branches=$(git ls-remote --heads "$repo_url" 2>/dev/null | sed 's/.*refs\/heads\///' | sort)
   
   if [ -z "$branches" ]; then
-    echo -e "${RED}[ERROR] Could not fetch branches from $repo_url${RESET}"
+    echo -e "${RED}[ERROR] Could not fetch branches from repository${RESET}"
     return 1
   fi
   
-  echo -e "${BLUE}Available branches:${RESET}"
+  echo -e "${MAGENTA}┌─────────────────────────────────────────────────────┐${RESET}"
+  echo -e "${MAGENTA}│                Available Branches                  │${RESET}"
+  echo -e "${MAGENTA}├─────────────────────────────────────────────────────┤${RESET}"
+  
   local i=1
   declare -g branch_array=()
   
   while IFS= read -r branch; do
-    echo "$i) $branch"
+    printf "${MAGENTA}│${RESET} %-2d. %-45s ${MAGENTA}│${RESET}\n" "$i" "$branch"
     branch_array+=("$branch")
     ((i++))
   done <<< "$branches"
+  
+  echo -e "${MAGENTA}└─────────────────────────────────────────────────────┘${RESET}"
+  echo
   
   return 0
 }
@@ -73,15 +82,17 @@ select_branch() {
   
   echo
   echo -e "${YELLOW}=== Branch Selection ===${RESET}"
-  echo "Repository: $repo_url"
-  echo "Default branch: ${default_branch:-<HEAD>}"
+  echo -e "${BLUE}Repository:${RESET} $repo_url"
+  echo -e "${BLUE}Default branch:${RESET} ${default_branch:-<HEAD>}"
   echo
   
   if ask_confirm "Do you want to select a specific branch? (y/n) [n]: " "n"; then
     if list_branches "$repo_url"; then
-      echo
+      echo -e "${CYAN}Additional Options:${RESET}"
       echo "0) Use default branch (HEAD)"
-      echo "d) Use default branch suggested by script: ${default_branch:-<none>}"
+      if [ -n "$default_branch" ]; then
+        echo "d) Use script default branch: $default_branch"
+      fi
       echo
       
       while true; do
@@ -90,25 +101,29 @@ select_branch() {
         case "$choice" in
           0)
             selected_branch=""
-            echo "[SELECTED] Default branch (HEAD)"
+            echo -e "${GREEN}[SELECTED] Default branch (HEAD)${RESET}"
             break
             ;;
           [Dd])
-            selected_branch="$default_branch"
-            echo "[SELECTED] Script default: $default_branch"
-            break
+            if [ -n "$default_branch" ]; then
+              selected_branch="$default_branch"
+              echo -e "${GREEN}[SELECTED] Script default: $default_branch${RESET}"
+              break
+            else
+              echo -e "${RED}No script default branch available${RESET}"
+            fi
             ;;
           [1-9]*)
             if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#branch_array[@]}" ]; then
               selected_branch="${branch_array[$((choice-1))]}"
-              echo "[SELECTED] Branch: $selected_branch"
+              echo -e "${GREEN}[SELECTED] Branch: $selected_branch${RESET}"
               break
             else
-              echo -e "${RED}Invalid choice. Please enter a number between 0 and ${#branch_array[@]}, or 'd'${RESET}"
+              echo -e "${RED}Invalid choice. Please enter a number between 0 and ${#branch_array[@]}$([ -n "$default_branch" ] && echo ", or 'd'")${RESET}"
             fi
             ;;
           *)
-            echo -e "${RED}Invalid choice. Please enter a number between 0 and ${#branch_array[@]}, or 'd'${RESET}"
+            echo -e "${RED}Invalid choice. Please enter a number between 0 and ${#branch_array[@]}$([ -n "$default_branch" ] && echo ", or 'd'")${RESET}"
             ;;
         esac
       done
@@ -118,7 +133,7 @@ select_branch() {
     fi
   else
     selected_branch="$default_branch"
-    echo "[SELECTED] Using ${selected_branch:-default branch}"
+    echo -e "${GREEN}[SELECTED] Using ${selected_branch:-default branch}${RESET}"
   fi
   
   echo "$selected_branch"
