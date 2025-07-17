@@ -37,7 +37,7 @@ ask_confirm() {
   done
 }
 
-# Function: Select branch from repo
+# Function: Select branch from repo (FIXED)
 select_branch() {
   local repo_url=$1
   echo "[INFO] Fetching branches from: $repo_url"
@@ -45,7 +45,7 @@ select_branch() {
   # Get branches and store in array
   local branches=()
   while IFS= read -r line; do
-    branches+=("$line")
+    [[ -n "$line" ]] && branches+=("$line")
   done < <(git ls-remote --heads "$repo_url" 2>/dev/null | awk '{print $2}' | sed 's|refs/heads/||')
 
   if [[ ${#branches[@]} -eq 0 ]]; then
@@ -54,13 +54,18 @@ select_branch() {
   fi
 
   echo "Available branches:"
-  local PS3="Select branch: "
-  select branch in "${branches[@]}"; do
-    if [[ -n "$branch" ]]; then
-      selected_branch="$branch"
+  for i in "${!branches[@]}"; do
+    echo "$((i+1))) ${branches[i]}"
+  done
+  
+  while true; do
+    read -rp "Select branch [1-${#branches[@]}]: " choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#branches[@]}" ]; then
+      selected_branch="${branches[$((choice-1))]}"
+      echo "Selected: $selected_branch"
       return 0
     else
-      echo "Invalid selection. Please try again."
+      echo "Invalid selection. Please enter a number between 1 and ${#branches[@]}."
     fi
   done
 }
@@ -121,21 +126,32 @@ clone_repo() {
   # Validate repository access
   if ! git ls-remote "$repo_url" &> /dev/null; then
     echo -e "${RED}[✘] Cannot access $repo_url. Check the connection or URL.${RESET}"
-    exit 1
+    return 1
+  fi
+
+  # Validate branch exists if specified
+  if [ -n "$branch" ]; then
+    if ! git ls-remote --heads "$repo_url" | grep -q "refs/heads/$branch"; then
+      echo -e "${RED}[✘] Branch '$branch' not found in $repo_url${RESET}"
+      return 1
+    fi
   fi
 
   # Clone repository
   if [ -n "$branch" ]; then
-    git clone -b "$branch" "$repo_url" "$target_dir"
+    if git clone -b "$branch" "$repo_url" "$target_dir"; then
+      echo -e "${GREEN}[✔] Clone completed to $target_dir${RESET}"
+    else
+      echo -e "${RED}[✘] Failed to clone $repo_url (branch: $branch)${RESET}"
+      return 1
+    fi
   else
-    git clone "$repo_url" "$target_dir"
-  fi
-
-  if [ $? -eq 0 ]; then
-    echo -e "${GREEN}[✔] Clone completed to $target_dir${RESET}"
-  else
-    echo -e "${RED}[✘] Failed to clone from $repo_url${RESET}"
-    exit 1
+    if git clone "$repo_url" "$target_dir"; then
+      echo -e "${GREEN}[✔] Clone completed to $target_dir${RESET}"
+    else
+      echo -e "${RED}[✘] Failed to clone $repo_url${RESET}"
+      return 1
+    fi
   fi
   echo
 }
@@ -149,19 +165,29 @@ choose_repo_and_branch() {
   echo
   echo "Component: $path"
   echo "Choose source:"
-  select opt in "Custom ($custom_repo)" "Official ($official_repo)"; do
-    case $REPLY in
+  echo "1) Custom ($custom_repo)"
+  echo "2) Official ($official_repo)"
+  
+  while true; do
+    read -rp "Enter your choice [1-2]: " choice
+    case $choice in
       1) repo=$custom_repo; break ;;
       2) repo=$official_repo; break ;;
-      *) echo "Invalid choice." ;;
+      *) echo "Invalid choice. Please enter 1 or 2." ;;
     esac
   done
 
   # Select branch
-  select_branch "$repo" || exit 1
+  if ! select_branch "$repo"; then
+    echo -e "${RED}[✘] Failed to select branch for $repo${RESET}"
+    return 1
+  fi
   
   # Clone with selected branch
-  clone_repo "$repo" "$path" "$selected_branch"
+  if ! clone_repo "$repo" "$path" "$selected_branch"; then
+    echo -e "${RED}[✘] Failed to clone $path${RESET}"
+    return 1
+  fi
 }
 
 # KernelSU-Next + SUSFS patch for redbull
@@ -226,7 +252,10 @@ clone_bramble() {
 
   echo
   echo "Cloning vendor tree (TheMuppets only)"
-  select_branch "https://github.com/TheMuppets/proprietary_vendor_google_bramble.git" || exit 1
+  if ! select_branch "https://github.com/TheMuppets/proprietary_vendor_google_bramble.git"; then
+    echo -e "${RED}[✘] Failed to select branch for vendor tree${RESET}"
+    return 1
+  fi
   clone_repo "https://github.com/TheMuppets/proprietary_vendor_google_bramble.git" "vendor/google/bramble" "$selected_branch"
 
   choose_repo_and_branch "kernel/google/redbull" \
@@ -256,7 +285,10 @@ clone_coral() {
 
   echo
   echo "Cloning vendor tree (TheMuppets only)"
-  select_branch "https://github.com/TheMuppets/proprietary_vendor_google_coral.git" || exit 1
+  if ! select_branch "https://github.com/TheMuppets/proprietary_vendor_google_coral.git"; then
+    echo -e "${RED}[✘] Failed to select branch for vendor tree${RESET}"
+    return 1
+  fi
   clone_repo "https://github.com/TheMuppets/proprietary_vendor_google_coral.git" "vendor/google/coral" "$selected_branch"
 
   choose_repo_and_branch "kernel/google/msm-4.14" \
@@ -278,7 +310,10 @@ clone_flame() {
 
   echo
   echo "Cloning vendor tree (TheMuppets only)"
-  select_branch "https://github.com/TheMuppets/proprietary_vendor_google_flame.git" || exit 1
+  if ! select_branch "https://github.com/TheMuppets/proprietary_vendor_google_flame.git"; then
+    echo -e "${RED}[✘] Failed to select branch for vendor tree${RESET}"
+    return 1
+  fi
   clone_repo "https://github.com/TheMuppets/proprietary_vendor_google_flame.git" "vendor/google/flame" "$selected_branch"
 
   choose_repo_and_branch "kernel/google/msm-4.14" \
@@ -300,7 +335,10 @@ clone_sunfish() {
 
   echo
   echo "Cloning vendor tree (TheMuppets only)"
-  select_branch "https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git" || exit 1
+  if ! select_branch "https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git"; then
+    echo -e "${RED}[✘] Failed to select branch for vendor tree${RESET}"
+    return 1
+  fi
   clone_repo "https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git" "vendor/google/sunfish" "$selected_branch"
 
   choose_repo_and_branch "kernel/google/msm-4.14" \
