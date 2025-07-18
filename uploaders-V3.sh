@@ -595,7 +595,7 @@ build_inline_keyboard() {
     fi
 
     # Row 5: Support Our Work
-    INLINE_KEYBOARD+=",[{\"text\":\"About Developers\",\"url\":\"https://donate-morph.netlify.app/\"}]"
+    INLINE_KEYBOARD+=",[{\"text\":\"About Developers\",\"url\":\"https://bias8145.github.io/Morpheus/\"}]"
 
     # Close keyboard structure
     INLINE_KEYBOARD+="]}"
