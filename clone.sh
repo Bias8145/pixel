@@ -8,6 +8,7 @@ CYAN="\033[0;36m"
 BLUE="\033[0;34m"
 BOLD="\033[1m"
 RESET="\033[0m"
+MAGENTA="\033[0;35m"
 
 # Global variables to store selections
 declare -A SELECTED_REPOS
@@ -90,6 +91,96 @@ select_menu_with_back() {
   done
 }
 
+# Function: Get repository info (URL and branch) from existing directory
+get_existing_repo_info() {
+  local target_dir="$1"
+  local repo_url=""
+  local repo_branch=""
+  
+  if [[ -d "$target_dir/.git" ]]; then
+    pushd "$target_dir" > /dev/null 2>&1
+    repo_url=$(git config --get remote.origin.url 2>/dev/null || echo "Unknown")
+    repo_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "Unknown")
+    popd > /dev/null 2>&1
+  fi
+  
+  echo "$repo_url|$repo_branch"
+}
+
+# Function: Check if directory exists and show info
+check_existing_directory() {
+  local target_dir="$1"
+  local component_name=$(basename "$target_dir")
+  
+  if [[ -d "$target_dir" ]]; then
+    local info=$(get_existing_repo_info "$target_dir")
+    local current_url=$(echo "$info" | cut -d'|' -f1)
+    local current_branch=$(echo "$info" | cut -d'|' -f2)
+    
+    echo -e "\n${YELLOW}[WARNING] Directory already exists: $target_dir${RESET}"
+    echo -e "${MAGENTA}Existing Repository Info:${RESET}"
+    echo -e "  └─ URL: ${CYAN}$current_url${RESET}"
+    echo -e "  └─ Branch: ${CYAN}$current_branch${RESET}"
+    
+    return 0
+  fi
+  
+  return 1
+}
+
+# Function: Handle existing directory options
+handle_existing_directory() {
+  local target_dir="$1"
+  local new_repo="$2"
+  local new_branch="$3"
+  local component_name=$(basename "$target_dir")
+  
+  local info=$(get_existing_repo_info "$target_dir")
+  local current_url=$(echo "$info" | cut -d'|' -f1)
+  local current_branch=$(echo "$info" | cut -d'|' -f2)
+  
+  # Check if same repo and branch
+  if [[ "$current_url" == "$new_repo" && "$current_branch" == "$new_branch" ]]; then
+    echo -e "${GREEN}[MATCH] Same repository and branch detected. No action needed.${RESET}"
+    return 0  # Skip clone
+  fi
+  
+  echo -e "\n${YELLOW}Repository/Branch mismatch detected!${RESET}"
+  echo -e "${CYAN}Current:${RESET} $current_url (branch: $current_branch)"
+  echo -e "${CYAN}Target:${RESET}  $new_repo (branch: $new_branch)"
+  
+  while true; do
+    echo -e "\n${YELLOW}What would you like to do?${RESET}"
+    echo "1) Remove existing and clone new repository"
+    echo "2) Keep existing repository (skip clone)"
+    echo "3) Back to repository selection"
+    
+    read -rp "Your choice [1-3]: " choice
+    case $choice in
+      1)
+        echo -e "${BLUE}[ACTION] Removing existing directory...${RESET}"
+        if rm -rf "$target_dir"; then
+          echo -e "${GREEN}[SUCCESS] Directory removed successfully${RESET}"
+          return 1  # Proceed with clone
+        else
+          echo -e "${RED}[ERROR] Failed to remove directory${RESET}"
+          return 2  # Error
+        fi
+        ;;
+      2)
+        echo -e "${YELLOW}[SKIP] Keeping existing repository${RESET}"
+        return 0  # Skip clone
+        ;;
+      3)
+        return 3  # Back to selection
+        ;;
+      *)
+        echo -e "${RED}Invalid choice. Please enter 1, 2, or 3.${RESET}"
+        ;;
+    esac
+  done
+}
+
 # Function: Select branch from repo with back option
 select_branch_with_back() {
   local repo_url=$1
@@ -131,7 +222,7 @@ select_branch_with_back() {
   done
 }
 
-# Function: Choose repo and branch with confirmation
+# Function: Choose repo and branch with confirmation and existing directory handling
 choose_repo_and_branch_interactive() {
   local path=$1
   local custom_repo=$2
@@ -141,6 +232,9 @@ choose_repo_and_branch_interactive() {
   while true; do
     echo -e "\n${YELLOW}━━━ Configuring: $component_name ━━━${RESET}"
     echo -e "Component path: ${BOLD}$path${RESET}"
+    
+    # Check if directory already exists and show info
+    check_existing_directory "$path"
     
     # Repository selection
     local repos=("Custom: $custom_repo" "Official: $official_repo")
@@ -163,6 +257,36 @@ choose_repo_and_branch_interactive() {
           return 1
         fi
       else
+        # Handle existing directory if present
+        if [[ -d "$path" ]]; then
+          handle_existing_directory "$path" "$repo" "$selected_branch"
+          local handle_result=$?
+          case $handle_result in
+            0) 
+              # Keep existing - store current info
+              local info=$(get_existing_repo_info "$path")
+              local current_url=$(echo "$info" | cut -d'|' -f1)
+              local current_branch=$(echo "$info" | cut -d'|' -f2)
+              SELECTED_REPOS["$path"]="$current_url"
+              SELECTED_BRANCHES["$path"]="$current_branch"
+              echo -e "${GREEN}[✓] Keeping existing repository for $component_name${RESET}"
+              return 0
+              ;;
+            1) 
+              # Proceed with new clone - continue to confirmation
+              ;;
+            2)
+              # Error occurred
+              echo -e "${RED}[ERROR] Failed to handle existing directory${RESET}"
+              continue
+              ;;
+            3)
+              # Back to repo selection
+              break
+              ;;
+          esac
+        fi
+        
         # Confirmation
         echo -e "\n${CYAN}Selection Summary for $component_name:${RESET}"
         echo -e "Repository: ${BOLD}$repo${RESET}"
@@ -187,7 +311,7 @@ choose_repo_and_branch_interactive() {
   done
 }
 
-# Function: Clone repo with progress simulation
+# Function: Clone repo with progress simulation and existing directory handling
 clone_repo_with_progress() {
   local repo_url=$1
   local target_dir=$2
@@ -199,21 +323,45 @@ clone_repo_with_progress() {
   echo -e "${BLUE}[ACTION] Cloning to $target_dir...${RESET}"
 
   # Check if directory already exists
-  if [ -d "$target_dir/.git" ]; then
-    echo -e "${YELLOW}[INFO] Directory $target_dir already exists. Validating...${RESET}"
-    pushd "$target_dir" > /dev/null
-
-    local current_url=$(git config --get remote.origin.url 2>/dev/null)
-    local current_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+  if [[ -d "$target_dir" ]]; then
+    local info=$(get_existing_repo_info "$target_dir")
+    local current_url=$(echo "$info" | cut -d'|' -f1)
+    local current_branch=$(echo "$info" | cut -d'|' -f2)
 
     if [[ "$current_url" == "$repo_url" && "$current_branch" == "$branch" ]]; then
       echo -e "${GREEN}[SKIP] Repository already up to date${RESET}"
-      popd > /dev/null
       return 0
     else
-      echo -e "${YELLOW}[WARNING] Repository mismatch detected! Re-cloning...${RESET}"
-      popd > /dev/null
-      rm -rf "$target_dir"
+      echo -e "${YELLOW}[WARNING] Directory exists with different repo/branch${RESET}"
+      echo -e "${CYAN}Current:${RESET} $current_url (branch: $current_branch)"
+      echo -e "${CYAN}Target:${RESET}  $repo_url (branch: $branch)"
+      
+      # This should have been handled in the configuration phase
+      # but we'll handle it here as a safety measure
+      while true; do
+        echo -e "\n${YELLOW}What would you like to do?${RESET}"
+        echo "1) Remove existing and clone new repository"
+        echo "2) Skip this clone"
+        
+        read -rp "Your choice [1-2]: " choice
+        case $choice in
+          1)
+            echo -e "${BLUE}[ACTION] Removing existing directory...${RESET}"
+            if ! rm -rf "$target_dir"; then
+              echo -e "${RED}[ERROR] Failed to remove directory${RESET}"
+              return 1
+            fi
+            break
+            ;;
+          2)
+            echo -e "${YELLOW}[SKIP] Clone skipped by user${RESET}"
+            return 0
+            ;;
+          *)
+            echo -e "${RED}Invalid choice. Please enter 1 or 2.${RESET}"
+            ;;
+        esac
+      done
     fi
   fi
 
@@ -239,7 +387,7 @@ clone_repo_with_progress() {
   fi
 }
 
-# Function: Show final review and confirm
+# Function: Show final review and confirm with existing repo info
 show_final_review() {
   echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo -e " === CONFIGURATION REVIEW ==="
@@ -251,13 +399,31 @@ show_final_review() {
     echo -e "${CYAN}KernelSU Option: ${BOLD}$KERNELSU_OPTION${RESET}"
   fi
   
-  echo -e "\n${CYAN}Repositories to be cloned:${RESET}"
+  echo -e "\n${CYAN}Repositories to be processed:${RESET}"
   for path in "${!SELECTED_REPOS[@]}"; do
     local repo="${SELECTED_REPOS[$path]}"
     local branch="${SELECTED_BRANCHES[$path]}"
     local component=$(basename "$path")
     
-    echo -e "  ${YELLOW}├─ $component${RESET}"
+    # Check if directory exists and determine action
+    local action="CLONE"
+    local status_color="$GREEN"
+    
+    if [[ -d "$path" ]]; then
+      local info=$(get_existing_repo_info "$path")
+      local current_url=$(echo "$info" | cut -d'|' -f1)
+      local current_branch=$(echo "$info" | cut -d'|' -f2)
+      
+      if [[ "$current_url" == "$repo" && "$current_branch" == "$branch" ]]; then
+        action="SKIP (Already exists)"
+        status_color="$YELLOW"
+      else
+        action="REPLACE (Different repo/branch)"
+        status_color="$MAGENTA"
+      fi
+    fi
+    
+    echo -e "  ${YELLOW}├─ $component ${status_color}[$action]${RESET}"
     echo -e "  │  Path: $path"
     echo -e "  │  Repo: $repo"
     echo -e "  │  Branch: $branch"
@@ -268,7 +434,7 @@ show_final_review() {
   
   while true; do
     echo -e "\nOptions:"
-    echo "1) Proceed with cloning"
+    echo "1) Proceed with the plan above"
     echo "2) Modify selections"
     echo "3) Cancel"
     
@@ -282,7 +448,7 @@ show_final_review() {
   done
 }
 
-# Function: Execute cloning process
+# Function: Execute cloning process with enhanced handling
 execute_cloning() {
   local rom_type="LineageOS"  # You can make this dynamic if needed
   
@@ -296,11 +462,30 @@ execute_cloning() {
   
   local failed_repos=()
   local successful_repos=()
+  local skipped_repos=()
+  local replaced_repos=()
   
   # Clone each repository
   for path in "${!SELECTED_REPOS[@]}"; do
     local repo="${SELECTED_REPOS[$path]}"
     local branch="${SELECTED_BRANCHES[$path]}"
+    local component_name=$(basename "$path")
+    
+    # Check if directory exists and determine action needed
+    if [[ -d "$path" ]]; then
+      local info=$(get_existing_repo_info "$path")
+      local current_url=$(echo "$info" | cut -d'|' -f1)
+      local current_branch=$(echo "$info" | cut -d'|' -f2)
+      
+      if [[ "$current_url" == "$repo" && "$current_branch" == "$branch" ]]; then
+        echo -e "${YELLOW}[SKIP] $component_name - Already up to date${RESET}"
+        skipped_repos+=("$path")
+        continue
+      else
+        echo -e "${MAGENTA}[REPLACE] $component_name - Different repo/branch detected${RESET}"
+        replaced_repos+=("$path")
+      fi
+    fi
     
     if clone_repo_with_progress "$repo" "$path" "$branch"; then
       successful_repos+=("$path")
@@ -315,73 +500,160 @@ execute_cloning() {
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo -e " === KernelSU-Next + SUSFS Setup ==="
     echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    setup_kernelsu_susfs_redbull
+    
+    if setup_kernelsu_susfs_redbull; then
+      echo -e "${GREEN}[SUCCESS] KernelSU-Next + SUSFS setup completed${RESET}"
+    else
+      echo -e "${RED}[ERROR] KernelSU-Next + SUSFS setup failed${RESET}"
+    fi
   fi
   
-  # Final summary
+  # Final summary with detailed statistics
   echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if [[ ${#failed_repos[@]} -eq 0 ]]; then
-    echo -e "${GREEN}[SUCCESS] All repositories cloned successfully${RESET}"
-  else
-    echo -e "${YELLOW}[PARTIAL SUCCESS] Some repositories failed to clone${RESET}"
-    echo -e "\n${RED}Failed repositories:${RESET}"
-    for repo in "${failed_repos[@]}"; do
-      echo -e "  - $repo"
+  echo -e " === EXECUTION SUMMARY ==="
+  echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+  
+  local total_repos=${#SELECTED_REPOS[@]}
+  local success_count=${#successful_repos[@]}
+  local skip_count=${#skipped_repos[@]}
+  local replace_count=${#replaced_repos[@]}
+  local fail_count=${#failed_repos[@]}
+  
+  echo -e "\n${CYAN}Statistics:${RESET}"
+  echo -e "  Total repositories: $total_repos"
+  echo -e "  ${GREEN}Successfully cloned: $success_count${RESET}"
+  echo -e "  ${YELLOW}Skipped (up-to-date): $skip_count${RESET}"
+  echo -e "  ${MAGENTA}Replaced: $replace_count${RESET}"
+  echo -e "  ${RED}Failed: $fail_count${RESET}"
+  
+  if [[ ${#successful_repos[@]} -gt 0 ]]; then
+    echo -e "\n${GREEN}Successfully processed:${RESET}"
+    for repo in "${successful_repos[@]}"; do
+      echo -e "  ✓ $(basename "$repo")"
     done
   fi
+  
+  if [[ ${#skipped_repos[@]} -gt 0 ]]; then
+    echo -e "\n${YELLOW}Skipped repositories:${RESET}"
+    for repo in "${skipped_repos[@]}"; do
+      echo -e "  ⊝ $(basename "$repo")"
+    done
+  fi
+  
+  if [[ ${#failed_repos[@]} -gt 0 ]]; then
+    echo -e "\n${RED}Failed repositories:${RESET}"
+    for repo in "${failed_repos[@]}"; do
+      echo -e "  ✗ $(basename "$repo")"
+    done
+  fi
+  
   echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
   
-  echo -e "\n${GREEN}[SUCCESS] Process completed!${RESET}"
-  echo -e "Successfully cloned: ${#successful_repos[@]} repositories"
-  if [[ ${#failed_repos[@]} -gt 0 ]]; then
-    echo -e "Failed to clone: ${#failed_repos[@]} repositories"
+  # Overall result
+  if [[ ${#failed_repos[@]} -eq 0 ]]; then
+    echo -e "\n${GREEN}[SUCCESS] Process completed successfully!${RESET}"
+  elif [[ ${#successful_repos[@]} -gt 0 ]]; then
+    echo -e "\n${YELLOW}[PARTIAL SUCCESS] Process completed with some issues${RESET}"
+  else
+    echo -e "\n${RED}[FAILURE] Process failed${RESET}"
   fi
+  
+  echo -e "\n${BLUE}[INFO] You can now proceed with your ROM build.${RESET}"
 }
 
-# KernelSU-Next + SUSFS patch for redbull (unchanged)
+# Enhanced KernelSU-Next + SUSFS patch for redbull with better error handling
 setup_kernelsu_susfs_redbull() {
-  set -e
-
+  local kernel_dir="kernel/google/redbull"
+  
   echo -e "\n${YELLOW}=== Setting up KernelSU-Next + SUSFS for Redbull Kernel ===${RESET}"
+  
+  # Check if kernel directory exists
+  if [[ ! -d "$kernel_dir" ]]; then
+    echo -e "${RED}[✘] Kernel directory not found: $kernel_dir${RESET}"
+    echo -e "${YELLOW}[INFO] Make sure the redbull kernel is cloned first.${RESET}"
+    return 1
+  fi
 
-  echo ">>> [1/9] Entering directory kernel/google/redbull"
-  cd kernel/google/redbull || { echo -e "${RED}Directory not found!${RESET}"; exit 1; }
+  echo ">>> [1/9] Entering directory $kernel_dir"
+  if ! cd "$kernel_dir"; then
+    echo -e "${RED}[✘] Failed to enter directory: $kernel_dir${RESET}"
+    return 1
+  fi
 
   echo ">>> [2/9] Downloading KernelSU-Next v1.0.3"
-  curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s v1.0.3
+  if ! curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s v1.0.3; then
+    echo -e "${RED}[✘] Failed to download/setup KernelSU-Next${RESET}"
+    return 1
+  fi
 
-  echo ">>> [3/9] Entering KernelSU-Next"
-  cd KernelSU-Next
+  echo ">>> [3/9] Entering KernelSU-Next directory"
+  if ! cd KernelSU-Next; then
+    echo -e "${RED}[✘] KernelSU-Next directory not found${RESET}"
+    return 1
+  fi
 
   echo ">>> [4/9] Downloading SUSFS patch v1.5.3"
-  curl -o 0001-Kernel-Implement-SUSFS-v1.5.3.patch https://github.com/sidex15/KernelSU-Next/commit/1e750de25930e875612bbec0410de0088474c00b.patch
-  if [ ! -s 0001-Kernel-Implement-SUSFS-v1.5.3.patch ]; then
+  if ! curl -o 0001-Kernel-Implement-SUSFS-v1.5.3.patch https://github.com/sidex15/KernelSU-Next/commit/1e750de25930e875612bbec0410de0088474c00b.patch; then
     echo -e "${RED}[✘] Failed to download SUSFS patch${RESET}"
-    exit 1
+    return 1
+  fi
+  
+  if [[ ! -s 0001-Kernel-Implement-SUSFS-v1.5.3.patch ]]; then
+    echo -e "${RED}[✘] SUSFS patch file is empty or invalid${RESET}"
+    return 1
   fi
 
   echo ">>> [5/9] Applying SUSFS patch to KernelSU-Next"
-  patch -p1 < 0001-Kernel-Implement-SUSFS-v1.5.3.patch
+  if ! patch -p1 < 0001-Kernel-Implement-SUSFS-v1.5.3.patch; then
+    echo -e "${RED}[✘] Failed to apply SUSFS patch${RESET}"
+    return 1
+  fi
 
   echo ">>> [6/9] Returning to redbull kernel root"
   cd ..
 
   echo ">>> [7/9] Cloning SUSFS for kernel 4.19"
-  git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.19
+  if [[ -d "susfs4ksu" ]]; then
+    echo -e "${YELLOW}[INFO] SUSFS directory already exists, removing...${RESET}"
+    rm -rf susfs4ksu
+  fi
+  
+  if ! git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.19; then
+    echo -e "${RED}[✘] Failed to clone SUSFS repository${RESET}"
+    return 1
+  fi
 
   echo ">>> [8/9] Copying fs/ and include/linux/ files"
-  cp -v susfs4ksu/kernel_patches/fs/* fs/
-  cp -v susfs4ksu/kernel_patches/include/linux/* include/linux/
+  if ! cp -v susfs4ksu/kernel_patches/fs/* fs/ 2>/dev/null; then
+    echo -e "${RED}[✘] Failed to copy fs/ files${RESET}"
+    return 1
+  fi
+  
+  if ! cp -v susfs4ksu/kernel_patches/include/linux/* include/linux/ 2>/dev/null; then
+    echo -e "${RED}[✘] Failed to copy include/linux/ files${RESET}"
+    return 1
+  fi
 
   echo ">>> [9/9] Applying 50_add_susfs_in_kernel-4.19.patch"
-  cp -v susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch .
-  patch -p1 < 50_add_susfs_in_kernel-4.19.patch
+  if ! cp -v susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch .; then
+    echo -e "${RED}[✘] Failed to copy kernel patch${RESET}"
+    return 1
+  fi
+  
+  if ! patch -p1 < 50_add_susfs_in_kernel-4.19.patch; then
+    echo -e "${RED}[✘] Failed to apply kernel patch${RESET}"
+    return 1
+  fi
+
+  # Cleanup
+  echo ">>> [CLEANUP] Removing temporary files"
+  rm -rf susfs4ksu
 
   echo -e "${GREEN}>>> ✅ Done! KernelSU-Next + SUSFS has been successfully applied.${RESET}"
-  echo
+  return 0
 }
 
-# Device configuration functions
+# Device configuration functions with enhanced existing directory handling
 configure_bramble() {
   SELECTED_DEVICE="Bramble (Pixel 4a 5G)"
   
@@ -536,7 +808,7 @@ configure_sunfish() {
   return 0
 }
 
-# Main execution flow
+# Enhanced main execution flow
 main() {
   while true; do
     # Device selection
@@ -560,8 +832,8 @@ main() {
       break
     else
       # User wants to modify - reset selections
-      SELECTED_REPOS=()
-      SELECTED_BRANCHES=()
+      declare -A SELECTED_REPOS=()
+      declare -A SELECTED_BRANCHES=()
       SELECTED_DEVICE=""
       KERNELSU_OPTION=""
     fi
