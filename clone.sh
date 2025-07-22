@@ -139,25 +139,20 @@ handle_existing_directory() {
   local current_url=$(echo "$info" | cut -d'|' -f1)
   local current_branch=$(echo "$info" | cut -d'|' -f2)
   
-  # Show existing repository info
-  echo -e "\n${YELLOW}[WARNING] Directory already exists: $target_dir${RESET}"
-  echo -e "${MAGENTA}Existing Repository Info:${RESET Bureaukrati
-  echo -e "  └─ URL: ${CYAN}$current_url${RESET}"
-  echo -e "  └─ Branch: ${CYAN}$current_branch${RESET}"
-  
   # Check if same repo and branch
   if [[ "$current_url" == "$new_repo" && "$current_branch" == "$new_branch" ]]; then
-    echo -e "${GREEN}[MATCH] Same repository and branch detected.${RESET}"
-  else
-    echo -e "${YELLOW}[MISMATCH] Different repository or branch detected!${RESET}"
-    echo -e "${CYAN}Current:${RESET} $current_url (branch: $current_branch)"
-    echo -e "${CYAN}Target:${RESET} $new_repo (branch: $new_branch)"
+    echo -e "${GREEN}[MATCH] Same repository and branch detected. No action needed.${RESET}"
+    return 0  # Skip clone
   fi
+  
+  echo -e "\n${YELLOW}Repository/Branch mismatch detected!${RESET}"
+  echo -e "${CYAN}Current:${RESET} $current_url (branch: $current_branch)"
+  echo -e "${CYAN}Target:${RESET}  $new_repo (branch: $new_branch)"
   
   while true; do
     echo -e "\n${YELLOW}What would you like to do?${RESET}"
-    echo "1) Replace: Remove existing and clone new repository"
-    echo "2) Skip: Keep existing repository"
+    echo "1) Remove existing and clone new repository"
+    echo "2) Keep existing repository (skip clone)"
     echo "3) Back to repository selection"
     
     read -rp "Your choice [1-3]: " choice
@@ -239,10 +234,7 @@ choose_repo_and_branch_interactive() {
     echo -e "Component path: ${BOLD}$path${RESET}"
     
     # Check if directory already exists and show info
-    local dir_exists=false
-    if check_existing_directory "$path"; then
-      dir_exists=true
-    fi
+    check_existing_directory "$path"
     
     # Repository selection
     local repos=("Custom: $custom_repo" "Official: $official_repo")
@@ -266,7 +258,7 @@ choose_repo_and_branch_interactive() {
         fi
       else
         # Handle existing directory if present
-        if [[ "$dir_exists" == true ]]; then
+        if [[ -d "$path" ]]; then
           handle_existing_directory "$path" "$repo" "$selected_branch"
           local handle_result=$?
           case $handle_result in
@@ -328,9 +320,9 @@ clone_repo_with_progress() {
 
   echo -e "${BLUE}[INFO] Selected repository: $repo_url${RESET}"
   echo -e "${BLUE}[INFO] Selected branch: $branch${RESET}"
-  echo -e "${BLUE}[ACTION] Processing $target_dir...${RESET}"
+  echo -e "${BLUE}[ACTION] Cloning to $target_dir...${RESET}"
 
-  # Check if directory exists and matches the selected repo/branch
+  # Check if directory already exists
   if [[ -d "$target_dir" ]]; then
     local info=$(get_existing_repo_info "$target_dir")
     local current_url=$(echo "$info" | cut -d'|' -f1)
@@ -339,13 +331,37 @@ clone_repo_with_progress() {
     if [[ "$current_url" == "$repo_url" && "$current_branch" == "$branch" ]]; then
       echo -e "${GREEN}[SKIP] Repository already up to date${RESET}"
       return 0
-    fi
-
-    # If we reach here, the user chose to replace during configuration
-    echo -e "${MAGENTA}[REPLACE] Removing existing directory with different repo/branch${RESET}"
-    if ! rm -rf "$target_dir"; then
-      echo -e "${RED}[ERROR] Failed to remove directory${RESET}"
-      return 1
+    else
+      echo -e "${YELLOW}[WARNING] Directory exists with different repo/branch${RESET}"
+      echo -e "${CYAN}Current:${RESET} $current_url (branch: $current_branch)"
+      echo -e "${CYAN}Target:${RESET}  $repo_url (branch: $branch)"
+      
+      # This should have been handled in the configuration phase
+      # but we'll handle it here as a safety measure
+      while true; do
+        echo -e "\n${YELLOW}What would you like to do?${RESET}"
+        echo "1) Remove existing and clone new repository"
+        echo "2) Skip this clone"
+        
+        read -rp "Your choice [1-2]: " choice
+        case $choice in
+          1)
+            echo -e "${BLUE}[ACTION] Removing existing directory...${RESET}"
+            if ! rm -rf "$target_dir"; then
+              echo -e "${RED}[ERROR] Failed to remove directory${RESET}"
+              return 1
+            fi
+            break
+            ;;
+          2)
+            echo -e "${YELLOW}[SKIP] Clone skipped by user${RESET}"
+            return 0
+            ;;
+          *)
+            echo -e "${RED}Invalid choice. Please enter 1 or 2.${RESET}"
+            ;;
+        esac
+      done
     fi
   fi
 
@@ -355,7 +371,7 @@ clone_repo_with_progress() {
     return 1
   fi
 
-  # Simulate progress
+  # Simulate progress (you can replace this with actual progress tracking)
   echo -n -e "${BLUE}[PROGRESS] 25% [█████---------------] Cloning $component_name"
   sleep 0.5
   echo -n -e "\r[PROGRESS] 50% [██████████----------] Cloning $component_name"
@@ -794,13 +810,6 @@ configure_sunfish() {
 
 # Enhanced main execution flow
 main() {
-  local skip_all_existing=false
-  echo -e "\n${YELLOW}━━━ Global Configuration Options ━━━${RESET}"
-  ask_confirm_with_back "Skip all existing repositories without prompting?" "n"
-  if [[ $? -eq 0 ]]; then
-    skip_all_existing=true
-  fi
-
   while true; do
     # Device selection
     if [[ -z "$SELECTED_DEVICE" ]]; then
@@ -817,20 +826,6 @@ main() {
       esac
     fi
     
-    # Apply global skip option
-    if [[ "$skip_all_existing" == true ]]; then
-      for path in "${!SELECTED_REPOS[@]}"; do
-        if [[ -d "$path" ]]; then
-          local info=$(get_existing_repo_info "$path")
-          local current_url=$(echo "$info" | cut -d'|' -f1)
-          local current_branch=$(echo "$info" | cut -d'|' -f2)
-          SELECTED_REPOS["$path"]="$current_url"
-          SELECTED_BRANCHES["$path"]="$current_branch"
-          echo -e "${YELLOW}[SKIP] Keeping existing repository for $(basename "$path")${RESET}"
-        fi
-      done
-    fi
-    
     # Show review and get confirmation
     if show_final_review; then
       execute_cloning
@@ -841,7 +836,6 @@ main() {
       declare -A SELECTED_BRANCHES=()
       SELECTED_DEVICE=""
       KERNELSU_OPTION=""
-      skip_all_existing=false
     fi
   done
 }
