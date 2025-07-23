@@ -128,7 +128,7 @@ check_existing_directory() {
   return 1
 }
 
-# Function: Handle existing directory options
+# Function: Handle existing directory options (used in clone phase)
 handle_existing_directory() {
   local target_dir="$1"
   local new_repo="$2"
@@ -234,7 +234,40 @@ choose_repo_and_branch_interactive() {
     echo -e "Component path: ${BOLD}$path${RESET}"
     
     # Check if directory already exists and show info
-    check_existing_directory "$path"
+    local existing=false
+    if check_existing_directory "$path"; then
+      existing=true
+      local info=$(get_existing_repo_info "$path")
+      local current_url=$(echo "$info" | cut -d'|' -f1)
+      local current_branch=$(echo "$info" | cut -d'|' -f2)
+      
+      # Prompt for existing directory handling
+      echo -e "\n${YELLOW}Directory already exists. What would you like to do?${RESET}"
+      echo "1) Replace with new repository"
+      echo "2) Keep existing repository (skip clone)"
+      echo "3) Back to repository selection"
+      
+      read -rp "Your choice [1-3]: " choice
+      case $choice in
+        1)
+          # Proceed to repository selection for replacement
+          ;;
+        2)
+          # Keep existing - store current info
+          SELECTED_REPOS["$path"]="$current_url"
+          SELECTED_BRANCHES["$path"]="$current_branch"
+          echo -e "${GREEN}[✓] Keeping existing repository for $component_name${RESET}"
+          return 0
+          ;;
+        3)
+          return 254  # Back to previous menu
+          ;;
+        *)
+          echo -e "${RED}Invalid choice. Please enter 1, 2, or 3.${RESET}"
+          continue
+          ;;
+      esac
+    fi
     
     # Repository selection
     local repos=("Custom: $custom_repo" "Official: $official_repo")
@@ -257,33 +290,23 @@ choose_repo_and_branch_interactive() {
           return 1
         fi
       else
-        # Handle existing directory if present
-        if [[ -d "$path" ]]; then
-          handle_existing_directory "$path" "$repo" "$selected_branch"
-          local handle_result=$?
-          case $handle_result in
-            0) 
-              # Keep existing - store current info
-              local info=$(get_existing_repo_info "$path")
-              local current_url=$(echo "$info" | cut -d'|' -f1)
-              local current_branch=$(echo "$info" | cut -d'|' -f2)
-              SELECTED_REPOS["$path"]="$current_url"
-              SELECTED_BRANCHES["$path"]="$current_branch"
-              echo -e "${GREEN}[✓] Keeping existing repository for $component_name${RESET}"
-              return 0
+        # If directory exists and we're replacing, confirm removal
+        if [[ "$existing" == true ]]; then
+          echo -e "\n${YELLOW}[WARNING] This will remove the existing directory: $path${RESET}"
+          ask_confirm_with_back "Proceed with replacing the existing repository?" "y"
+          local confirm_result=$?
+          case $confirm_result in
+            0)
+              # Proceed with removal and new clone
+              echo -e "${BLUE}[ACTION] Removing existing directory...${RESET}"
+              if ! rm -rf "$path"; then
+                echo -e "${RED}[ERROR] Failed to remove directory${RESET}"
+                continue
+              fi
+              echo -e "${GREEN}[SUCCESS] Existing directory removed${RESET}"
               ;;
-            1) 
-              # Proceed with new clone - continue to confirmation
-              ;;
-            2)
-              # Error occurred
-              echo -e "${RED}[ERROR] Failed to handle existing directory${RESET}"
-              continue
-              ;;
-            3)
-              # Back to repo selection
-              break
-              ;;
+            1) continue ;;  # Try again
+            2) break ;;     # Back to repo selection
           esac
         fi
         
