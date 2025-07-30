@@ -543,7 +543,7 @@ build_inline_keyboard() {
     
     # URLs for additional downloads
     KSU_NEXT_MANAGER_URL="https://t.me/ksunext/728"
-    SUPPORT_GROUP_URL="https://t.me/pixel4seriesofficial"
+    SUPPORT_GROUP_URL="https://t.me/Pixel4Roms"
     
     INLINE_KEYBOARD='{"inline_keyboard":['
     
