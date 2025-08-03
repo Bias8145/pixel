@@ -1,8 +1,8 @@
-﻿#!/bin/bash
+#!/bin/bash
 
 # Upload Script by VOLD_NAMESPACE
 
-# Upload Script - Safe Version
+# Upload Script - Safe Version with microG Support
 
 # Usage:
 #   export BOT_TOKEN="..."
@@ -41,7 +41,7 @@ print_colored() {
 print_banner() {
     print_colored $CYAN "╔════════════════════════════════════════════════════════════════╗"
     print_colored $CYAN "           VOLD_NAMESPACE Upload Script                                     "
-    print_colored $CYAN "              Enhanced Version v2.0                                         "
+    print_colored $CYAN "              Enhanced Version v2.1 with microG                            "
     print_colored $CYAN "╚════════════════════════════════════════════════════════════════╝"
     echo ""
 }
@@ -89,30 +89,36 @@ ask_ksu_next_susfs() {
     echo ""
 }
 
-# Function to get user confirmation for GApps
-ask_gapps_variant() {
+# Function to get user confirmation for Build Variant
+ask_build_variant() {
     echo ""
-    print_colored $YELLOW "GApps Variant"
-    print_colored $WHITE "Is this a GApps build?"
-    print_colored $CYAN "  [Y] Yes - GApps build"
-    print_colored $CYAN "  [N] No  - Vanilla build"
+    print_colored $YELLOW "Build Variant Selection"
+    print_colored $WHITE "What type of build is this?"
+    print_colored $CYAN "  [1] GApps   - Google Apps included"
+    print_colored $CYAN "  [2] microG  - microG services included (Privacy-focused Google Services replacement)"
+    print_colored $CYAN "  [3] Vanilla - Clean build without Google services"
     echo ""
 
     while true; do
-        read -p "$(print_colored $YELLOW "Enter your choice (Y/N): ")" choice
+        read -p "$(print_colored $YELLOW "Enter your choice (1/2/3): ")" choice
         case $choice in
-            [Yy]* )
-                IS_GAPPS="true"
+            1 )
+                BUILD_VARIANT="gapps"
                 print_colored $GREEN "✅ GApps build selected"
                 break
                 ;;
-            [Nn]* )
-                IS_GAPPS="false"
+            2 )
+                BUILD_VARIANT="microg"
+                print_colored $GREEN "✅ microG build selected"
+                break
+                ;;
+            3 )
+                BUILD_VARIANT="vanilla"
                 print_colored $BLUE "✅ Vanilla build selected"
                 break
                 ;;
             * )
-                print_colored $RED "❌ Please answer Y or N"
+                print_colored $RED "❌ Please enter 1, 2, or 3"
                 ;;
         esac
     done
@@ -173,23 +179,35 @@ extract_build_info() {
 # Function to build tags and notes
 build_tags_and_notes() {
     EXTRA_TAGS=""
-EXTRA_NOTE_RAW=""
+    EXTRA_NOTE_RAW=""
 
-# GApps/Vanilla Tagging
-if [ "$IS_GAPPS" = "true" ]; then
-    EXTRA_TAGS+=" [GAPPS]"
-    EXTRA_NOTE_RAW+="✅ Google Apps included\n"
-else
-    EXTRA_TAGS+=" [VANILLA]"
-    EXTRA_NOTE_RAW+="✅ Vanilla build (no Google Apps)\n"
-fi
+    # Build Variant Tagging
+    case "$BUILD_VARIANT" in
+        "gapps")
+            EXTRA_TAGS+=" [GAPPS]"
+            EXTRA_NOTE_RAW+="✅ Google Apps included\n"
+            EXTRA_NOTE_RAW+="✅ Full Google services integration\n"
+            ;;
+        "microg")
+            EXTRA_TAGS+=" [MICROG]"
+            EXTRA_NOTE_RAW+="✅ microG services included\n"
+            EXTRA_NOTE_RAW+="✅ Privacy-focused Google services replacement\n"
+            EXTRA_NOTE_RAW+="✅ Better privacy protection\n"
+            EXTRA_NOTE_RAW+="✅ Reduced Google tracking\n"
+            ;;
+        "vanilla")
+            EXTRA_TAGS+=" [VANILLA]"
+            EXTRA_NOTE_RAW+="✅ Vanilla build (no Google services)\n"
+            EXTRA_NOTE_RAW+="✅ Clean AOSP experience\n"
+            ;;
+    esac
 
-# KSU Tagging
-if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-    EXTRA_TAGS+=" [KSU-NEXT] [SUSFS]"
-    EXTRA_NOTE_RAW+="✅ KernelSU Next support included\n"
-    EXTRA_NOTE_RAW+="✅ SUSFS (Suspicious File System) enabled\n"
-fi
+    # KSU Tagging
+    if [ "$KSU_NEXT_SUSFS" = "true" ]; then
+        EXTRA_TAGS+=" [KSU-NEXT] [SUSFS]"
+        EXTRA_NOTE_RAW+="✅ KernelSU Next support included\n"
+        EXTRA_NOTE_RAW+="✅ SUSFS (Suspicious File System) enabled\n"
+    fi
     
     # Build tag name
     TAG_NAME="[${PROJECT_NAME// /_}]"
@@ -267,6 +285,25 @@ build_telegram_message() {
 <b>Project:</b> ${PROJECT_NAME}
 <b>Android Version:</b> ${ANDROID_VERSION}
 <b>Security Patch:</b> ${FORMATTED_PATCH}
+<b>Build Variant:</b> $(echo $BUILD_VARIANT | tr '[:lower:]' '[:upper:]')"
+
+    # Add variant-specific information
+    case "$BUILD_VARIANT" in
+        "gapps")
+            TELEGRAM_MESSAGE+="
+<b>Google Services:</b> Full GApps included"
+            ;;
+        "microg")
+            TELEGRAM_MESSAGE+="
+<b>Google Services:</b> microG (Privacy-focused alternative)"
+            ;;
+        "vanilla")
+            TELEGRAM_MESSAGE+="
+<b>Google Services:</b> None (Pure AOSP)"
+            ;;
+    esac
+
+    TELEGRAM_MESSAGE+="
 <b>Release Date:</b> ${RELEASE_DATE}
 <b>Maintainer:</b> ${PROJECT_AUTHOR}
 
@@ -286,8 +323,8 @@ generate_file_name() {
 
     case $file_counter in
         1)
-            # ROM Package - keep original naming structure
-            BASE_RENAME="${PROJECT_NAME// /_}_${DEVICE_NAME}_${RELEASE_DATE}"
+            # ROM Package - include variant in name
+            BASE_RENAME="${PROJECT_NAME// /_}_${DEVICE_NAME}_${BUILD_VARIANT^^}_${RELEASE_DATE}"
             ;;
         2)
             # BOOT Image - include KSU info if enabled
@@ -441,7 +478,7 @@ process_files() {
     print_colored $GREEN "✅ All files processed successfully ($FILE_COUNTER files)"
 }
 
-# Function to create flash guide
+# Function to create flash guide with microG support
 create_flash_guide() {
     print_colored $BLUE "Creating flash guide..."
     
@@ -468,19 +505,63 @@ FASTBOOT METHOD:
 6. Flash vendor image (if available):
    fastboot flash vendor vendor.img
    OR
-   fastboot flash vendor_boor vendor_boot.img
+   fastboot flash vendor_boot vendor_boot.img
 7. Reboot to recovery:
    fastboot reboot recovery
 8. Apply ROM via ADB sideload:
    adb sideload rom.zip
 
+BUILD VARIANT INFORMATION:"
+
+    case "$BUILD_VARIANT" in
+        "gapps")
+            FLASH_GUIDE_TEXT+="
+• This is a GApps build with full Google services
+• Google Play Store and services are pre-installed
+• No additional setup required for Google services
+• Sign in with your Google account after first boot
+• All Google apps will work out of the box"
+            ;;
+        "microg")
+            FLASH_GUIDE_TEXT+="
+• This build includes microG services
+• Privacy-focused alternative to Google services
+• microG provides core Google services functionality
+• Better privacy protection with reduced tracking
+• Most Google Play dependent apps will work
+• Download F-Droid for additional app sources
+• Enable 'Signature Spoofing' if prompted in microG settings
+• Some Google apps may require additional configuration"
+            ;;
+        "vanilla")
+            FLASH_GUIDE_TEXT+="
+• This is a vanilla build without Google services
+• Pure AOSP experience without any Google integration
+• You can install microG or GApps separately if needed
+• Recommended for users who want maximum privacy
+• F-Droid recommended as primary app store"
+            ;;
+    esac
+
+    FLASH_GUIDE_TEXT+="
+
 TROUBLESHOOTING:
 • If stuck in bootloop: Flash stock firmware
 • If no signal: Flash modem/radio firmware
 • If storage issues: Format data in recovery
-• If bootloader locked: Unlock bootloader first
+• If bootloader locked: Unlock bootloader first"
 
-⚡ ROOT INFORMATION:"
+    # Add microG specific troubleshooting
+    if [ "$BUILD_VARIANT" = "microg" ]; then
+        FLASH_GUIDE_TEXT+="
+• If apps don't work: Check microG settings
+• Enable device registration in microG
+• Grant all permissions to microG components"
+    fi
+
+    FLASH_GUIDE_TEXT+="
+
+ROOT INFORMATION:"
 
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
         FLASH_GUIDE_TEXT+="
@@ -490,6 +571,13 @@ TROUBLESHOOTING:
 • Enhanced root hiding capabilities
 • Advanced detection bypass included
 • SUSFS provides superior stealth mode"
+        
+        # Add microG + KSU compatibility note
+        if [ "$BUILD_VARIANT" = "microg" ]; then
+            FLASH_GUIDE_TEXT+="
+• microG + KSU combination provides excellent privacy
+• Root apps will work with microG services"
+        fi
     else
         FLASH_GUIDE_TEXT+="
 • No root solution pre-installed
@@ -497,6 +585,39 @@ TROUBLESHOOTING:
 • This is a clean build without modifications
 • Root access requires separate installation"
     fi
+
+    # Add variant-specific resources
+    case "$BUILD_VARIANT" in
+        "microg")
+            FLASH_GUIDE_TEXT+="
+
+MICROG RESOURCES:
+• microG Project: https://microg.org
+• F-Droid Store: https://f-droid.org
+• Aurora Store: Alternative Play Store client
+• microG Settings: Configure after first boot
+• UnifiedNlp: For location services
+• Signature Spoofing: Required for functionality"
+            ;;
+        "gapps")
+            FLASH_GUIDE_TEXT+="
+
+GOOGLE SERVICES:
+• Full Google Play Services included
+• Google Play Store pre-installed
+• All Google apps supported
+• Automatic Google account sync"
+            ;;
+        "vanilla")
+            FLASH_GUIDE_TEXT+="
+
+ALTERNATIVE STORES:
+• F-Droid: https://f-droid.org (Open source apps)
+• Aurora Store: Play Store alternative
+• APKMirror: https://apkmirror.com
+• Obtainium: Direct app updates"
+            ;;
+    esac
 
     FLASH_GUIDE_TEXT+="
 
@@ -521,7 +642,7 @@ Flash at your own risk and ensure you understand the process!"
     print_colored $CYAN "Creating Telegraph page..."
     FLASH_GUIDE_RESPONSE=$(curl -s -X POST https://api.telegra.ph/createPage \
         -d access_token="$TELEGRAPH_TOKEN" \
-        --data-urlencode "title=Flash Guide - $PROJECT_NAME for $DEVICE_NAME" \
+        --data-urlencode "title=Flash Guide - $PROJECT_NAME for $DEVICE_NAME ($BUILD_VARIANT)" \
         --data-urlencode "author_name=VOLD_NAMESPACE" \
         --data-urlencode "author_url=https://t.me/VOLD_NAMESPACE" \
         --data-urlencode "content=[{\"tag\":\"pre\",\"children\":[\"$FLASH_GUIDE_TEXT\"]}]")
@@ -537,13 +658,29 @@ Flash at your own risk and ensure you understand the process!"
     fi
 }
 
-# Function to build inline keyboard - Modified Layout
+# Function to build inline keyboard - Modified Layout with microG support
 build_inline_keyboard() {
     print_colored $BLUE "Building inline keyboard..."
     
-    # URLs for additional downloads
+    # URLs for additional downloads - variant specific
     KSU_NEXT_MANAGER_URL="https://t.me/ksunext/728"
     SUPPORT_GROUP_URL="https://t.me/Pixel4Roms"
+    
+    # Variant-specific URLs
+    case "$BUILD_VARIANT" in
+        "microg")
+            VARIANT_SPECIFIC_URL="https://f-droid.org"
+            VARIANT_BUTTON_TEXT="F-Droid Store"
+            ;;
+        "gapps")
+            VARIANT_SPECIFIC_URL="https://play.google.com/store"
+            VARIANT_BUTTON_TEXT="Play Store"
+            ;;
+        "vanilla")
+            VARIANT_SPECIFIC_URL="https://f-droid.org"
+            VARIANT_BUTTON_TEXT="F-Droid Store"
+            ;;
+    esac
     
     INLINE_KEYBOARD='{"inline_keyboard":['
     
@@ -552,11 +689,11 @@ build_inline_keyboard() {
     
     if [ ${#MAIN_URLS[@]} -gt 0 ]; then
         ROM_URL_ESCAPED=$(echo "${MAIN_URLS[0]}" | sed 's/"/\\"/g')
-        FIRST_ROW_BUTTONS+=("{\"text\":\"ROM\",\"url\":\"${ROM_URL_ESCAPED}\"}")
+        FIRST_ROW_BUTTONS+=("{\"text\":\"📱 ROM\",\"url\":\"${ROM_URL_ESCAPED}\"}")
     fi
     if [ ${#MAIN_URLS[@]} -gt 1 ]; then
         BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[1]}" | sed 's/"/\\"/g')
-        FIRST_ROW_BUTTONS+=("{\"text\":\"BOOT\",\"url\":\"${BOOT_URL_ESCAPED}\"}")
+        FIRST_ROW_BUTTONS+=("{\"text\":\"🥾 BOOT\",\"url\":\"${BOOT_URL_ESCAPED}\"}")
     fi
     if [ ${#FIRST_ROW_BUTTONS[@]} -gt 0 ]; then
         INLINE_KEYBOARD+="["
@@ -571,11 +708,11 @@ build_inline_keyboard() {
     SECOND_ROW_BUTTONS=()
     if [ ${#MAIN_URLS[@]} -gt 2 ]; then
         DTBO_URL_ESCAPED=$(echo "${MAIN_URLS[2]}" | sed 's/"/\\"/g')
-        SECOND_ROW_BUTTONS+=("{\"text\":\"DTBO\",\"url\":\"${DTBO_URL_ESCAPED}\"}")
+        SECOND_ROW_BUTTONS+=("{\"text\":\"🔧 DTBO\",\"url\":\"${DTBO_URL_ESCAPED}\"}")
     fi
     if [ ${#MAIN_URLS[@]} -gt 3 ]; then
         VENDOR_BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[3]}" | sed 's/"/\\"/g')
-        SECOND_ROW_BUTTONS+=("{\"text\":\"VENDOR BOOT\",\"url\":\"${VENDOR_BOOT_URL_ESCAPED}\"}")
+        SECOND_ROW_BUTTONS+=("{\"text\":\"📦 VENDOR BOOT\",\"url\":\"${VENDOR_BOOT_URL_ESCAPED}\"}")
     fi
     if [ ${#SECOND_ROW_BUTTONS[@]} -gt 0 ]; then
         INLINE_KEYBOARD+=",["
@@ -587,48 +724,72 @@ build_inline_keyboard() {
     fi
 
     # Row 3: Flash Guide | Support Group
-    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Group\",\"url\":\"${SUPPORT_GROUP_URL}\"}]"
+    INLINE_KEYBOARD+=",[{\"text\":\"📋 Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"💬 Support Group\",\"url\":\"${SUPPORT_GROUP_URL}\"}]"
 
-    # Row 4: KernelSU Manager (only if enabled)
+    # Row 4: Variant-specific button | KernelSU Manager (if enabled)
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        INLINE_KEYBOARD+=",[{\"text\":\"KernelSU Next Manager\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
+        INLINE_KEYBOARD+=",[{\"text\":\"${VARIANT_BUTTON_TEXT}\",\"url\":\"${VARIANT_SPECIFIC_URL}\"},{\"text\":\"🔐 KernelSU Next\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
+    else
+        INLINE_KEYBOARD+=",[{\"text\":\"${VARIANT_BUTTON_TEXT}\",\"url\":\"${VARIANT_SPECIFIC_URL}\"}]"
+    fi
+    
+    # Add microG specific button if it's microG build
+    if [ "$BUILD_VARIANT" = "microg" ]; then
+        MICROG_URL="https://microg.org"
+        if [ "$KSU_NEXT_SUSFS" = "true" ]; then
+            # If KSU is enabled, add microG button in new row
+            INLINE_KEYBOARD+=",[{\"text\":\"🛡️ microG Project\",\"url\":\"${MICROG_URL}\"}]"
+        else
+            # If KSU is not enabled, add microG button with F-Droid
+            INLINE_KEYBOARD="${INLINE_KEYBOARD%]}},{\"text\":\"🛡️ microG Project\",\"url\":\"${MICROG_URL}\"}]"
+        fi
     fi
 
-    # Row 5: Support Our Work
-    INLINE_KEYBOARD+=",[{\"text\":\"About Developers\",\"url\":\"https://bias8145.github.io/Morpheus/\"}]"
+    # Final row: About Developers
+    INLINE_KEYBOARD+=",[{\"text\":\"👨‍💻 About Developers\",\"url\":\"https://bias8145.github.io/Morpheus/\"}]"
 
     # Close keyboard structure
     INLINE_KEYBOARD+="]}"
 
     print_colored $GREEN "✅ Inline keyboard built successfully"
 
-    # Debug: Show keyboard structure
+    # Debug: Show keyboard layout
     print_colored $YELLOW "Keyboard layout:"
 
     # Row 1: ROM | BOOT
     ROW1_CONTENT="   Row 1: "
     BUTTON_COUNT=0
-    [ ${#MAIN_URLS[@]} -gt 0 ] && { ROW1_CONTENT+="ROM"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
-    [ ${#MAIN_URLS[@]} -gt 1 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW1_CONTENT+=" | "; ROW1_CONTENT+="BOOT"; }
+    [ ${#MAIN_URLS[@]} -gt 0 ] && { ROW1_CONTENT+="📱 ROM"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
+    [ ${#MAIN_URLS[@]} -gt 1 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW1_CONTENT+=" | "; ROW1_CONTENT+="🥾 BOOT"; }
     print_colored $WHITE "$ROW1_CONTENT"
 
     # Row 2: DTBO | VENDOR BOOT
     ROW2_CONTENT="   Row 2: "
     BUTTON_COUNT=0
-    [ ${#MAIN_URLS[@]} -gt 2 ] && { ROW2_CONTENT+="DTBO"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
-    [ ${#MAIN_URLS[@]} -gt 3 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW2_CONTENT+=" | "; ROW2_CONTENT+="VENDOR BOOT"; }
-    print_colored $WHITE "$ROW2_CONTENT"
+    [ ${#MAIN_URLS[@]} -gt 2 ] && { ROW2_CONTENT+="🔧 DTBO"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
+    [ ${#MAIN_URLS[@]} -gt 3 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW2_CONTENT+=" | "; ROW2_CONTENT+="📦 VENDOR BOOT"; }
+    [ $BUTTON_COUNT -gt 0 ] && print_colored $WHITE "$ROW2_CONTENT"
 
     # Row 3: Flash Guide | Support Group
-    print_colored $WHITE "   Row 3: Flash Guide | Support Group"
+    print_colored $WHITE "   Row 3: 📋 Flash Guide | 💬 Support Group"
 
-    # Row 4: KernelSU or Support
+    # Row 4: Variant-specific
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        print_colored $WHITE "   Row 4: KernelSU Next Manager"
-        print_colored $WHITE "   Row 5: Support Our Work"
+        print_colored $WHITE "   Row 4: ${VARIANT_BUTTON_TEXT} | 🔐 KernelSU Next"
+        ROW_COUNTER=5
     else
-        print_colored $WHITE "   Row 4: About Developers"
+        print_colored $WHITE "   Row 4: ${VARIANT_BUTTON_TEXT}"
+        ROW_COUNTER=5
     fi
+
+    # microG row
+    if [ "$BUILD_VARIANT" = "microg" ] && [ "$KSU_NEXT_SUSFS" = "true" ]; then
+        print_colored $WHITE "   Row ${ROW_COUNTER}: 🛡️ microG Project"
+        ROW_COUNTER=$((ROW_COUNTER+1))
+    fi
+
+    # Final row
+    print_colored $WHITE "   Row ${ROW_COUNTER}: 👨‍💻 About Developers"
 }
 
 # Function to send message to Telegram
@@ -639,16 +800,31 @@ send_telegram_message() {
     TEMP_MSG_FILE=$(mktemp)
     echo -n "$TELEGRAM_MESSAGE" > "$TEMP_MSG_FILE"
     
-    # Show preview
+    # Show preview with variant info
     print_colored $YELLOW "Message Preview:"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "Project: $PROJECT_NAME"
     echo "Device: $DEVICE_NAME"
+    echo "Build Variant: $(echo $BUILD_VARIANT | tr '[:lower:]' '[:upper:]')"
     echo "Files: $FILE_COUNTER"
+    
+    # Show variant-specific features
+    case "$BUILD_VARIANT" in
+        "gapps")
+            echo "Features: Google Apps included"
+            ;;
+        "microg")
+            echo "Features: microG services (Privacy-focused)"
+            ;;
+        "vanilla")
+            echo "Features: Pure AOSP (No Google services)"
+            ;;
+    esac
+    
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        echo "Features: KSU Next + SUSFS"
+        echo "Root: KSU Next + SUSFS"
     else
-        echo "Features: Standard build"
+        echo "Root: None (Standard build)"
     fi
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
@@ -697,9 +873,21 @@ send_telegram_message() {
     # Check response
     if echo "$RESPONSE" | grep -q '"ok":true'; then
         print_colored $GREEN "✅ Message sent successfully to Telegram!"
+        
+        # Extract message ID for reference
+        MESSAGE_ID=$(echo "$RESPONSE" | jq -r '.result.message_id // empty' 2>/dev/null)
+        if [ -n "$MESSAGE_ID" ] && [ "$MESSAGE_ID" != "null" ]; then
+            print_colored $WHITE "   Message ID: $MESSAGE_ID"
+        fi
     else
         print_colored $RED "❌ Failed to send Telegram message"
         print_colored $YELLOW "Response: $RESPONSE"
+        
+        # Try to extract error information
+        ERROR_DESC=$(echo "$RESPONSE" | jq -r '.description // empty' 2>/dev/null)
+        if [ -n "$ERROR_DESC" ] && [ "$ERROR_DESC" != "null" ]; then
+            print_colored $RED "   Error: $ERROR_DESC"
+        fi
     fi
 }
 
@@ -711,15 +899,38 @@ log_upload() {
         echo "=== Upload Log - $(date) ==="
         echo "Project: $PROJECT_NAME"
         echo "Device: $DEVICE_NAME"
+        echo "Build Variant: $BUILD_VARIANT"
         echo "Android Version: $ANDROID_VERSION"
         echo "Security Patch: $FORMATTED_PATCH"
         echo "KSU Next SUSFS: $KSU_NEXT_SUSFS"
         echo "Files uploaded: $FILE_COUNTER"
         echo "Tag: $TAG_NAME"
-        echo "Telegram Response: $RESPONSE"
+        
+        # Log file URLs
+        echo "File URLs:"
+        for i in "${!MAIN_URLS[@]}"; do
+            FILE_TYPE=$(get_file_display_name $((i+1)))
+            echo "  $FILE_TYPE: ${MAIN_URLS[$i]}"
+        done
+        
         if [ -n "$FLASH_GUIDE_URL" ]; then
             echo "Flash Guide: $FLASH_GUIDE_URL"
         fi
+        
+        # Log variant-specific info
+        case "$BUILD_VARIANT" in
+            "microg")
+                echo "microG Features: Privacy-focused Google services replacement"
+                ;;
+            "gapps")
+                echo "GApps Features: Full Google services integration"
+                ;;
+            "vanilla")
+                echo "Vanilla Features: Pure AOSP without Google services"
+                ;;
+        esac
+        
+        echo "Telegram Response: $RESPONSE"
         echo "================================"
         echo ""
     } >> "$UPLOAD_LOG"
@@ -731,25 +942,47 @@ log_upload() {
 show_summary() {
     echo ""
     print_colored $GREEN "╔════════════════════════════════════════════════════════════════╗"
-    print_colored $GREEN "║                      UPLOAD COMPLETED.                                     ║"
+    print_colored $GREEN "║                      UPLOAD COMPLETED                                      ║"
     print_colored $GREEN "╚════════════════════════════════════════════════════════════════╝"
     print_colored $WHITE "Project: $PROJECT_NAME"
     print_colored $WHITE "Device: $DEVICE_NAME"
+    print_colored $WHITE "Build Variant: $(echo $BUILD_VARIANT | tr '[:lower:]' '[:upper:]')"
     print_colored $WHITE "Files: $FILE_COUNTER uploaded successfully"
+    
+    # Show variant-specific summary
+    case "$BUILD_VARIANT" in
+        "gapps")
+            print_colored $WHITE "Features: Google Apps included"
+            ;;
+        "microg")
+            print_colored $WHITE "Features: microG services (Privacy-focused)"
+            ;;
+        "vanilla")
+            print_colored $WHITE "Features: Pure AOSP experience"
+            ;;
+    esac
+    
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        print_colored $WHITE "Features: KSU Next + SUSFS enabled"
+        print_colored $WHITE "Root: KSU Next + SUSFS enabled"
     else
-        print_colored $WHITE "Features: Standard build"
+        print_colored $WHITE "Root: Standard build (no root)"
     fi
+    
     print_colored $WHITE "Log: $UPLOAD_LOG"
     if [ -n "$FLASH_GUIDE_URL" ]; then
         print_colored $WHITE "Flash Guide: $FLASH_GUIDE_URL"
     fi
+    
+    # Show quick links summary
+    print_colored $YELLOW "Quick Access:"
+    [ ${#MAIN_URLS[@]} -gt 0 ] && print_colored $WHITE "  ROM: ${MAIN_URLS[0]}"
+    [ ${#MAIN_URLS[@]} -gt 1 ] && print_colored $WHITE "  BOOT: ${MAIN_URLS[1]}"
+    
     print_colored $GREEN "✅ All tasks completed successfully!"
     echo ""
 }
 
-# Main execution
+# Main execution function
 main() {
     print_banner
     validate_inputs "$@"
@@ -777,7 +1010,7 @@ main() {
     shift
     RELEASE_DATE=$(date +"%d-%m-%Y")
     PROJECT_AUTHOR="@VOLD_NAMESPACE"
-    UPLOAD_LOG="upload_log.txt"
+    UPLOAD_LOG="upload_log_${RELEASE_DATE}.txt"
     
     print_colored $BLUE "Project: $PROJECT_NAME"
     print_colored $BLUE "Release Date: $RELEASE_DATE"
@@ -785,8 +1018,8 @@ main() {
     # Ask for KSU Next SUSFS configuration
     ask_ksu_next_susfs
 
-    # Ask for GAPPS Varians configuration
-    ask_gapps_variant
+    # Ask for Build Variant configuration (GApps/microG/Vanilla)
+    ask_build_variant
     
     # Detect device and build info
     detect_device_info "$1"
@@ -808,6 +1041,10 @@ main() {
     log_upload
     show_summary
 }
+
+# Error handling
+set -e
+trap 'print_colored $RED "❌ Script failed at line $LINENO. Check the error above."' ERR
 
 # Run main function with all arguments
 main "$@"
