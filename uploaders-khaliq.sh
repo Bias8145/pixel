@@ -922,6 +922,262 @@ log_upload() {
                 ;;
             "gapps")
                 echo "GApps Features: Full Google services integration"
+# Function to build inline keyboard - Simplified Layout
+build_inline_keyboard() {
+    print_colored $BLUE "Building inline keyboard..."
+    
+    # URLs for additional downloads
+    KSU_NEXT_MANAGER_URL="https://t.me/ksunext/728"
+    SUPPORT_GROUP_URL="https://t.me/Pixel4Roms"
+    MICROG_URL="https://microg.org"
+    
+    INLINE_KEYBOARD='{"inline_keyboard":['
+    
+    # First row: ROM | BOOT
+    FIRST_ROW_BUTTONS=()
+    
+    if [ ${#MAIN_URLS[@]} -gt 0 ]; then
+        ROM_URL_ESCAPED=$(echo "${MAIN_URLS[0]}" | sed 's/"/\\"/g')
+        FIRST_ROW_BUTTONS+=("{\"text\":\"📱 ROM\",\"url\":\"${ROM_URL_ESCAPED}\"}")
+    fi
+    if [ ${#MAIN_URLS[@]} -gt 1 ]; then
+        BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[1]}" | sed 's/"/\\"/g')
+        FIRST_ROW_BUTTONS+=("{\"text\":\"🥾 BOOT\",\"url\":\"${BOOT_URL_ESCAPED}\"}")
+    fi
+    if [ ${#FIRST_ROW_BUTTONS[@]} -gt 0 ]; then
+        INLINE_KEYBOARD+="["
+        for i in "${!FIRST_ROW_BUTTONS[@]}"; do
+            [ $i -gt 0 ] && INLINE_KEYBOARD+=","
+            INLINE_KEYBOARD+="${FIRST_ROW_BUTTONS[$i]}"
+        done
+        INLINE_KEYBOARD+="]"
+    fi
+
+    # Second row: DTBO | VENDOR_BOOT
+    SECOND_ROW_BUTTONS=()
+    if [ ${#MAIN_URLS[@]} -gt 2 ]; then
+        DTBO_URL_ESCAPED=$(echo "${MAIN_URLS[2]}" | sed 's/"/\\"/g')
+        SECOND_ROW_BUTTONS+=("{\"text\":\"🔧 DTBO\",\"url\":\"${DTBO_URL_ESCAPED}\"}")
+    fi
+    if [ ${#MAIN_URLS[@]} -gt 3 ]; then
+        VENDOR_BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[3]}" | sed 's/"/\\"/g')
+        SECOND_ROW_BUTTONS+=("{\"text\":\"📦 VENDOR BOOT\",\"url\":\"${VENDOR_BOOT_URL_ESCAPED}\"}")
+    fi
+    if [ ${#SECOND_ROW_BUTTONS[@]} -gt 0 ]; then
+        INLINE_KEYBOARD+=",["
+        for i in "${!SECOND_ROW_BUTTONS[@]}"; do
+            [ $i -gt 0 ] && INLINE_KEYBOARD+=","
+            INLINE_KEYBOARD+="${SECOND_ROW_BUTTONS[$i]}"
+        done
+        INLINE_KEYBOARD+="]"
+    fi
+
+    # Row 3: Flash Guide | Support Group
+    INLINE_KEYBOARD+=",[{\"text\":\"📋 Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"💬 Support Group\",\"url\":\"${SUPPORT_GROUP_URL}\"}]"
+
+    # Row 4: KernelSU Manager | microG Project (if applicable)
+    ROW4_BUTTONS=()
+    
+    if [ "$KSU_NEXT_SUSFS" = "true" ]; then
+        ROW4_BUTTONS+=("{\"text\":\"🔐 KernelSU Next\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}")
+    fi
+    
+    if [ "$BUILD_VARIANT" = "microg" ]; then
+        ROW4_BUTTONS+=("{\"text\":\"🛡️ microG Project\",\"url\":\"${MICROG_URL}\"}")
+    fi
+    
+    # Add row 4 if there are buttons
+    if [ ${#ROW4_BUTTONS[@]} -gt 0 ]; then
+        INLINE_KEYBOARD+=",["
+        for i in "${!ROW4_BUTTONS[@]}"; do
+            [ $i -gt 0 ] && INLINE_KEYBOARD+=","
+            INLINE_KEYBOARD+="${ROW4_BUTTONS[$i]}"
+        done
+        INLINE_KEYBOARD+="]"
+    fi
+
+    # Final row: About Developers
+    INLINE_KEYBOARD+=",[{\"text\":\"👨‍💻 About Developers\",\"url\":\"https://bias8145.github.io/Morpheus/\"}]"
+
+    # Close keyboard structure
+    INLINE_KEYBOARD+="]}"
+
+    print_colored $GREEN "✅ Inline keyboard built successfully"
+
+    # Debug: Show keyboard layout
+    print_colored $YELLOW "Keyboard layout:"
+
+    # Row 1: ROM | BOOT
+    ROW1_CONTENT="   Row 1: "
+    BUTTON_COUNT=0
+    [ ${#MAIN_URLS[@]} -gt 0 ] && { ROW1_CONTENT+="📱 ROM"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
+    [ ${#MAIN_URLS[@]} -gt 1 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW1_CONTENT+=" | "; ROW1_CONTENT+="🥾 BOOT"; }
+    print_colored $WHITE "$ROW1_CONTENT"
+
+    # Row 2: DTBO | VENDOR BOOT
+    ROW2_CONTENT="   Row 2: "
+    BUTTON_COUNT=0
+    [ ${#MAIN_URLS[@]} -gt 2 ] && { ROW2_CONTENT+="🔧 DTBO"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
+    [ ${#MAIN_URLS[@]} -gt 3 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW2_CONTENT+=" | "; ROW2_CONTENT+="📦 VENDOR BOOT"; }
+    [ $BUTTON_COUNT -gt 0 ] && print_colored $WHITE "$ROW2_CONTENT"
+
+    # Row 3: Flash Guide | Support Group
+    print_colored $WHITE "   Row 3: 📋 Flash Guide | 💬 Support Group"
+
+    # Row 4: Show dynamic content
+    if [ ${#ROW4_BUTTONS[@]} -gt 0 ]; then
+        ROW4_CONTENT="   Row 4: "
+        BUTTON_COUNT=0
+        
+        if [ "$KSU_NEXT_SUSFS" = "true" ]; then
+            ROW4_CONTENT+="🔐 KernelSU Next"
+            BUTTON_COUNT=$((BUTTON_COUNT+1))
+        fi
+        
+        if [ "$BUILD_VARIANT" = "microg" ]; then
+            [ $BUTTON_COUNT -gt 0 ] && ROW4_CONTENT+=" | "
+            ROW4_CONTENT+="🛡️ microG Project"
+        fi
+        
+        print_colored $WHITE "$ROW4_CONTENT"
+        print_colored $WHITE "   Row 5: 👨‍💻 About Developers"
+    else
+        print_colored $WHITE "   Row 4: 👨‍💻 About Developers"
+    fi
+}
+
+# Function to send message to Telegram
+send_telegram_message() {
+    print_colored $BLUE "Preparing to send message to Telegram..."
+    
+    # Create temporary file for message
+    TEMP_MSG_FILE=$(mktemp)
+    echo -n "$TELEGRAM_MESSAGE" > "$TEMP_MSG_FILE"
+    
+    # Show preview with variant info
+    print_colored $YELLOW "Message Preview:"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Project: $PROJECT_NAME"
+    echo "Device: $DEVICE_NAME"
+    echo "Build Variant: $(echo $BUILD_VARIANT | tr '[:lower:]' '[:upper:]')"
+    echo "Files: $FILE_COUNTER"
+    
+    # Show variant-specific features
+    case "$BUILD_VARIANT" in
+        "gapps")
+            echo "Features: Google Apps included"
+            ;;
+        "microg")
+            echo "Features: microG services (Privacy-focused)"
+            ;;
+        "vanilla")
+            echo "Features: Pure AOSP (No Google services)"
+            ;;
+    esac
+    
+    if [ "$KSU_NEXT_SUSFS" = "true" ]; then
+        echo "Root: KSU Next + SUSFS"
+    else
+        echo "Root: None (Standard build)"
+    fi
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # Ask for confirmation
+    echo ""
+    while true; do
+        read -p "$(print_colored $YELLOW "Send this message with banner to Telegram? (Y/N): ")" CONFIRM
+        case $CONFIRM in
+            [Yy]* ) 
+                print_colored $GREEN "✅ Proceeding with upload..."
+                break
+                ;;
+            [Nn]* ) 
+                print_colored $RED "❌ Upload canceled by user"
+                rm "$TEMP_MSG_FILE"
+                exit 0
+                ;;
+            * ) 
+                print_colored $RED "❌ Please answer Y or N"
+                ;;
+        esac
+    done
+    
+    # Send message
+    print_colored $CYAN "Sending message to Telegram..."
+    
+    if [ "$BANNER_MODE" == "url" ]; then
+        RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto" \
+            -d chat_id="${CHAT_ID}" \
+            --data-urlencode photo="$BANNER_FILE_URL" \
+            --data-urlencode caption@"$TEMP_MSG_FILE" \
+            --data-urlencode parse_mode="HTML" \
+            --data-urlencode reply_markup="$INLINE_KEYBOARD")
+    else
+        RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto" \
+            -F chat_id="${CHAT_ID}" \
+            -F photo=@"$BANNER_FILE" \
+            -F caption=@"$TEMP_MSG_FILE" \
+            -F parse_mode="HTML" \
+            -F reply_markup="$INLINE_KEYBOARD")
+    fi
+    
+    # Clean up
+    rm "$TEMP_MSG_FILE"
+    
+    # Check response
+    if echo "$RESPONSE" | grep -q '"ok":true'; then
+        print_colored $GREEN "✅ Message sent successfully to Telegram!"
+        
+        # Extract message ID for reference
+        MESSAGE_ID=$(echo "$RESPONSE" | jq -r '.result.message_id // empty' 2>/dev/null)
+        if [ -n "$MESSAGE_ID" ] && [ "$MESSAGE_ID" != "null" ]; then
+            print_colored $WHITE "   Message ID: $MESSAGE_ID"
+        fi
+    else
+        print_colored $RED "❌ Failed to send Telegram message"
+        print_colored $YELLOW "Response: $RESPONSE"
+        
+        # Try to extract error information
+        ERROR_DESC=$(echo "$RESPONSE" | jq -r '.description // empty' 2>/dev/null)
+        if [ -n "$ERROR_DESC" ] && [ "$ERROR_DESC" != "null" ]; then
+            print_colored $RED "   Error: $ERROR_DESC"
+        fi
+    fi
+}
+
+# Function to log upload
+log_upload() {
+    print_colored $BLUE "Logging upload information..."
+    
+    {
+        echo "=== Upload Log - $(date) ==="
+        echo "Project: $PROJECT_NAME"
+        echo "Device: $DEVICE_NAME"
+        echo "Build Variant: $BUILD_VARIANT"
+        echo "Android Version: $ANDROID_VERSION"
+        echo "Security Patch: $FORMATTED_PATCH"
+        echo "KSU Next SUSFS: $KSU_NEXT_SUSFS"
+        echo "Files uploaded: $FILE_COUNTER"
+        echo "Tag: $TAG_NAME"
+        
+        # Log file URLs
+        echo "File URLs:"
+        for i in "${!MAIN_URLS[@]}"; do
+            FILE_TYPE=$(get_file_display_name $((i+1)))
+            echo "  $FILE_TYPE: ${MAIN_URLS[$i]}"
+        done
+        
+        if [ -n "$FLASH_GUIDE_URL" ]; then
+            echo "Flash Guide: $FLASH_GUIDE_URL"
+        fi
+        
+        # Log variant-specific info
+        case "$BUILD_VARIANT" in
+            "microg")
+                echo "microG Features: Privacy-focused Google services replacement"
+                ;;
+            "gapps")
+                echo "GApps Features: Full Google services integration"
                 ;;
             "vanilla")
                 echo "Vanilla Features: Pure AOSP without Google services"
@@ -940,7 +1196,7 @@ log_upload() {
 show_summary() {
     echo ""
     print_colored $GREEN "╔════════════════════════════════════════════════════════════════╗"
-    print_colored $GREEN "                             UPLOAD COMPLETED                                 "
+    print_colored $GREEN "                              UPLOAD COMPLETED                                "
     print_colored $GREEN "╚════════════════════════════════════════════════════════════════╝"
     print_colored $WHITE "Project: $PROJECT_NAME"
     print_colored $WHITE "Device: $DEVICE_NAME"
@@ -1046,5 +1302,3 @@ trap 'print_colored $RED "❌ Script failed at line $LINENO. Check the error abo
 
 # Run main function with all arguments
 main "$@"
-
-
