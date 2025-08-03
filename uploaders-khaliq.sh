@@ -38,8 +38,8 @@ print_colored() {
 # Function to print banner
 print_banner() {
     print_colored $CYAN "╔════════════════════════════════════════════════════════════════╗"
-    print_colored $CYAN "                        VOLD_NAMESPACE Upload Script                          "
-    print_colored $CYAN "                      Enhanced Version v2.1 with microG                       "
+    print_colored $CYAN "                         VOLD_NAMESPACE Upload Script                         "
+    print_colored $CYAN "                       Enhanced Version v2.1 with microG                      "
     print_colored $CYAN "╚════════════════════════════════════════════════════════════════╝"
     echo ""
 }
@@ -938,11 +938,11 @@ build_inline_keyboard() {
     
     if [ ${#MAIN_URLS[@]} -gt 0 ]; then
         ROM_URL_ESCAPED=$(echo "${MAIN_URLS[0]}" | sed 's/"/\\"/g')
-        FIRST_ROW_BUTTONS+=("{\"text\":\"📱 ROM\",\"url\":\"${ROM_URL_ESCAPED}\"}")
+        FIRST_ROW_BUTTONS+=("{\"text\":\"ROM\",\"url\":\"${ROM_URL_ESCAPED}\"}")
     fi
     if [ ${#MAIN_URLS[@]} -gt 1 ]; then
         BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[1]}" | sed 's/"/\\"/g')
-        FIRST_ROW_BUTTONS+=("{\"text\":\"🥾 BOOT\",\"url\":\"${BOOT_URL_ESCAPED}\"}")
+        FIRST_ROW_BUTTONS+=("{\"text\":\"BOOT\",\"url\":\"${BOOT_URL_ESCAPED}\"}")
     fi
     if [ ${#FIRST_ROW_BUTTONS[@]} -gt 0 ]; then
         INLINE_KEYBOARD+="["
@@ -957,11 +957,11 @@ build_inline_keyboard() {
     SECOND_ROW_BUTTONS=()
     if [ ${#MAIN_URLS[@]} -gt 2 ]; then
         DTBO_URL_ESCAPED=$(echo "${MAIN_URLS[2]}" | sed 's/"/\\"/g')
-        SECOND_ROW_BUTTONS+=("{\"text\":\"🔧 DTBO\",\"url\":\"${DTBO_URL_ESCAPED}\"}")
+        SECOND_ROW_BUTTONS+=("{\"text\":\"DTBO\",\"url\":\"${DTBO_URL_ESCAPED}\"}")
     fi
     if [ ${#MAIN_URLS[@]} -gt 3 ]; then
         VENDOR_BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[3]}" | sed 's/"/\\"/g')
-        SECOND_ROW_BUTTONS+=("{\"text\":\"📦 VENDOR BOOT\",\"url\":\"${VENDOR_BOOT_URL_ESCAPED}\"}")
+        SECOND_ROW_BUTTONS+=("{\"text\":\"VENDOR BOOT\",\"url\":\"${VENDOR_BOOT_URL_ESCAPED}\"}")
     fi
     if [ ${#SECOND_ROW_BUTTONS[@]} -gt 0 ]; then
         INLINE_KEYBOARD+=",["
@@ -973,17 +973,17 @@ build_inline_keyboard() {
     fi
 
     # Row 3: Flash Guide | Support Group
-    INLINE_KEYBOARD+=",[{\"text\":\"📋 Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"💬 Support Group\",\"url\":\"${SUPPORT_GROUP_URL}\"}]"
+    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Group\",\"url\":\"${SUPPORT_GROUP_URL}\"}]"
 
     # Row 4: KernelSU Manager | microG Project (if applicable)
     ROW4_BUTTONS=()
     
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        ROW4_BUTTONS+=("{\"text\":\"🔐 KernelSU Next\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}")
+        ROW4_BUTTONS+=("{\"text\":\"KernelSU Next\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}")
     fi
     
     if [ "$BUILD_VARIANT" = "microg" ]; then
-        ROW4_BUTTONS+=("{\"text\":\"🛡️ microG Project\",\"url\":\"${MICROG_URL}\"}")
+        ROW4_BUTTONS+=("{\"text\":\"microG Project\",\"url\":\"${MICROG_URL}\"}")
     fi
     
     # Add row 4 if there are buttons
@@ -997,7 +997,7 @@ build_inline_keyboard() {
     fi
 
     # Final row: About Developers
-    INLINE_KEYBOARD+=",[{\"text\":\"👨‍💻 About Developers\",\"url\":\"https://bias8145.github.io/Morpheus/\"}]"
+    INLINE_KEYBOARD+=",[{\"text\":\"About Developers\",\"url\":\"https://bias8145.github.io/Morpheus/\"}]"
 
     # Close keyboard structure
     INLINE_KEYBOARD+="]}"
@@ -1010,19 +1010,19 @@ build_inline_keyboard() {
     # Row 1: ROM | BOOT
     ROW1_CONTENT="   Row 1: "
     BUTTON_COUNT=0
-    [ ${#MAIN_URLS[@]} -gt 0 ] && { ROW1_CONTENT+="📱 ROM"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
-    [ ${#MAIN_URLS[@]} -gt 1 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW1_CONTENT+=" | "; ROW1_CONTENT+="🥾 BOOT"; }
+    [ ${#MAIN_URLS[@]} -gt 0 ] && { ROW1_CONTENT+="ROM"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
+    [ ${#MAIN_URLS[@]} -gt 1 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW1_CONTENT+=" | "; ROW1_CONTENT+="BOOT"; }
     print_colored $WHITE "$ROW1_CONTENT"
 
     # Row 2: DTBO | VENDOR BOOT
     ROW2_CONTENT="   Row 2: "
     BUTTON_COUNT=0
-    [ ${#MAIN_URLS[@]} -gt 2 ] && { ROW2_CONTENT+="🔧 DTBO"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
-    [ ${#MAIN_URLS[@]} -gt 3 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW2_CONTENT+=" | "; ROW2_CONTENT+="📦 VENDOR BOOT"; }
+    [ ${#MAIN_URLS[@]} -gt 2 ] && { ROW2_CONTENT+="DTBO"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
+    [ ${#MAIN_URLS[@]} -gt 3 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW2_CONTENT+=" | "; ROW2_CONTENT+="VENDOR BOOT"; }
     [ $BUTTON_COUNT -gt 0 ] && print_colored $WHITE "$ROW2_CONTENT"
 
     # Row 3: Flash Guide | Support Group
-    print_colored $WHITE "   Row 3: 📋 Flash Guide | 💬 Support Group"
+    print_colored $WHITE "   Row 3: Flash Guide | Support Group"
 
     # Row 4: Show dynamic content
     if [ ${#ROW4_BUTTONS[@]} -gt 0 ]; then
@@ -1030,19 +1030,19 @@ build_inline_keyboard() {
         BUTTON_COUNT=0
         
         if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-            ROW4_CONTENT+="🔐 KernelSU Next"
+            ROW4_CONTENT+="KernelSU Next"
             BUTTON_COUNT=$((BUTTON_COUNT+1))
         fi
         
         if [ "$BUILD_VARIANT" = "microg" ]; then
             [ $BUTTON_COUNT -gt 0 ] && ROW4_CONTENT+=" | "
-            ROW4_CONTENT+="🛡️ microG Project"
+            ROW4_CONTENT+="microG Project"
         fi
         
         print_colored $WHITE "$ROW4_CONTENT"
-        print_colored $WHITE "   Row 5: 👨‍💻 About Developers"
+        print_colored $WHITE "   Row 5: About Developers"
     else
-        print_colored $WHITE "   Row 4: 👨‍💻 About Developers"
+        print_colored $WHITE "   Row 4: About Developers"
     fi
 }
 
@@ -1196,7 +1196,7 @@ log_upload() {
 show_summary() {
     echo ""
     print_colored $GREEN "╔════════════════════════════════════════════════════════════════╗"
-    print_colored $GREEN "                              UPLOAD COMPLETED                                "
+    print_colored $GREEN "                                UPLOAD COMPLETED                              "
     print_colored $GREEN "╚════════════════════════════════════════════════════════════════╝"
     print_colored $WHITE "Project: $PROJECT_NAME"
     print_colored $WHITE "Device: $DEVICE_NAME"
@@ -1302,3 +1302,4 @@ trap 'print_colored $RED "❌ Script failed at line $LINENO. Check the error abo
 
 # Run main function with all arguments
 main "$@"
+
