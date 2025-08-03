@@ -2,8 +2,6 @@
 
 # Upload Script by VOLD_NAMESPACE
 
-# Upload Script - Safe Version with microG Support
-
 # Usage:
 #   export BOT_TOKEN="..."
 #   export CHAT_ID="..."
@@ -689,11 +687,11 @@ build_inline_keyboard() {
     
     if [ ${#MAIN_URLS[@]} -gt 0 ]; then
         ROM_URL_ESCAPED=$(echo "${MAIN_URLS[0]}" | sed 's/"/\\"/g')
-        FIRST_ROW_BUTTONS+=("{\"text\":\"📱 ROM\",\"url\":\"${ROM_URL_ESCAPED}\"}")
+        FIRST_ROW_BUTTONS+=("{\"text\":\"ROM\",\"url\":\"${ROM_URL_ESCAPED}\"}")
     fi
     if [ ${#MAIN_URLS[@]} -gt 1 ]; then
         BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[1]}" | sed 's/"/\\"/g')
-        FIRST_ROW_BUTTONS+=("{\"text\":\"🥾 BOOT\",\"url\":\"${BOOT_URL_ESCAPED}\"}")
+        FIRST_ROW_BUTTONS+=("{\"text\":\"BOOT\",\"url\":\"${BOOT_URL_ESCAPED}\"}")
     fi
     if [ ${#FIRST_ROW_BUTTONS[@]} -gt 0 ]; then
         INLINE_KEYBOARD+="["
@@ -708,11 +706,11 @@ build_inline_keyboard() {
     SECOND_ROW_BUTTONS=()
     if [ ${#MAIN_URLS[@]} -gt 2 ]; then
         DTBO_URL_ESCAPED=$(echo "${MAIN_URLS[2]}" | sed 's/"/\\"/g')
-        SECOND_ROW_BUTTONS+=("{\"text\":\"🔧 DTBO\",\"url\":\"${DTBO_URL_ESCAPED}\"}")
+        SECOND_ROW_BUTTONS+=("{\"text\":\"DTBO\",\"url\":\"${DTBO_URL_ESCAPED}\"}")
     fi
     if [ ${#MAIN_URLS[@]} -gt 3 ]; then
         VENDOR_BOOT_URL_ESCAPED=$(echo "${MAIN_URLS[3]}" | sed 's/"/\\"/g')
-        SECOND_ROW_BUTTONS+=("{\"text\":\"📦 VENDOR BOOT\",\"url\":\"${VENDOR_BOOT_URL_ESCAPED}\"}")
+        SECOND_ROW_BUTTONS+=("{\"text\":\"VENDOR BOOT\",\"url\":\"${VENDOR_BOOT_URL_ESCAPED}\"}")
     fi
     if [ ${#SECOND_ROW_BUTTONS[@]} -gt 0 ]; then
         INLINE_KEYBOARD+=",["
@@ -724,11 +722,11 @@ build_inline_keyboard() {
     fi
 
     # Row 3: Flash Guide | Support Group
-    INLINE_KEYBOARD+=",[{\"text\":\"📋 Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"💬 Support Group\",\"url\":\"${SUPPORT_GROUP_URL}\"}]"
+    INLINE_KEYBOARD+=",[{\"text\":\"Flash Guide\",\"url\":\"${FLASH_GUIDE_URL}\"},{\"text\":\"Support Group\",\"url\":\"${SUPPORT_GROUP_URL}\"}]"
 
     # Row 4: Variant-specific button | KernelSU Manager (if enabled)
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        INLINE_KEYBOARD+=",[{\"text\":\"${VARIANT_BUTTON_TEXT}\",\"url\":\"${VARIANT_SPECIFIC_URL}\"},{\"text\":\"🔐 KernelSU Next\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
+        INLINE_KEYBOARD+=",[{\"text\":\"${VARIANT_BUTTON_TEXT}\",\"url\":\"${VARIANT_SPECIFIC_URL}\"},{\"text\":\"KernelSU Next\",\"url\":\"${KSU_NEXT_MANAGER_URL}\"}]"
     else
         INLINE_KEYBOARD+=",[{\"text\":\"${VARIANT_BUTTON_TEXT}\",\"url\":\"${VARIANT_SPECIFIC_URL}\"}]"
     fi
@@ -738,15 +736,15 @@ build_inline_keyboard() {
         MICROG_URL="https://microg.org"
         if [ "$KSU_NEXT_SUSFS" = "true" ]; then
             # If KSU is enabled, add microG button in new row
-            INLINE_KEYBOARD+=",[{\"text\":\"🛡️ microG Project\",\"url\":\"${MICROG_URL}\"}]"
+            INLINE_KEYBOARD+=",[{\"text\":\"microG Project\",\"url\":\"${MICROG_URL}\"}]"
         else
             # If KSU is not enabled, add microG button with F-Droid
-            INLINE_KEYBOARD="${INLINE_KEYBOARD%]}},{\"text\":\"🛡️ microG Project\",\"url\":\"${MICROG_URL}\"}]"
+            INLINE_KEYBOARD="${INLINE_KEYBOARD%]}},{\"text\":\"microG Project\",\"url\":\"${MICROG_URL}\"}]"
         fi
     fi
 
     # Final row: About Developers
-    INLINE_KEYBOARD+=",[{\"text\":\"👨‍💻 About Developers\",\"url\":\"https://bias8145.github.io/Morpheus/\"}]"
+    INLINE_KEYBOARD+=",[{\"text\":\"About Developers\",\"url\":\"https://bias8145.github.io/Morpheus/\"}]"
 
     # Close keyboard structure
     INLINE_KEYBOARD+="]}"
@@ -759,23 +757,23 @@ build_inline_keyboard() {
     # Row 1: ROM | BOOT
     ROW1_CONTENT="   Row 1: "
     BUTTON_COUNT=0
-    [ ${#MAIN_URLS[@]} -gt 0 ] && { ROW1_CONTENT+="📱 ROM"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
-    [ ${#MAIN_URLS[@]} -gt 1 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW1_CONTENT+=" | "; ROW1_CONTENT+="🥾 BOOT"; }
+    [ ${#MAIN_URLS[@]} -gt 0 ] && { ROW1_CONTENT+="ROM"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
+    [ ${#MAIN_URLS[@]} -gt 1 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW1_CONTENT+=" | "; ROW1_CONTENT+="BOOT"; }
     print_colored $WHITE "$ROW1_CONTENT"
 
     # Row 2: DTBO | VENDOR BOOT
     ROW2_CONTENT="   Row 2: "
     BUTTON_COUNT=0
-    [ ${#MAIN_URLS[@]} -gt 2 ] && { ROW2_CONTENT+="🔧 DTBO"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
-    [ ${#MAIN_URLS[@]} -gt 3 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW2_CONTENT+=" | "; ROW2_CONTENT+="📦 VENDOR BOOT"; }
+    [ ${#MAIN_URLS[@]} -gt 2 ] && { ROW2_CONTENT+="DTBO"; BUTTON_COUNT=$((BUTTON_COUNT+1)); }
+    [ ${#MAIN_URLS[@]} -gt 3 ] && { [ $BUTTON_COUNT -gt 0 ] && ROW2_CONTENT+=" | "; ROW2_CONTENT+="VENDOR BOOT"; }
     [ $BUTTON_COUNT -gt 0 ] && print_colored $WHITE "$ROW2_CONTENT"
 
     # Row 3: Flash Guide | Support Group
-    print_colored $WHITE "   Row 3: 📋 Flash Guide | 💬 Support Group"
+    print_colored $WHITE "   Row 3: Flash Guide | Support Group"
 
     # Row 4: Variant-specific
     if [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        print_colored $WHITE "   Row 4: ${VARIANT_BUTTON_TEXT} | 🔐 KernelSU Next"
+        print_colored $WHITE "   Row 4: ${VARIANT_BUTTON_TEXT} | KernelSU Next"
         ROW_COUNTER=5
     else
         print_colored $WHITE "   Row 4: ${VARIANT_BUTTON_TEXT}"
@@ -784,12 +782,12 @@ build_inline_keyboard() {
 
     # microG row
     if [ "$BUILD_VARIANT" = "microg" ] && [ "$KSU_NEXT_SUSFS" = "true" ]; then
-        print_colored $WHITE "   Row ${ROW_COUNTER}: 🛡️ microG Project"
+        print_colored $WHITE "   Row ${ROW_COUNTER}: microG Project"
         ROW_COUNTER=$((ROW_COUNTER+1))
     fi
 
     # Final row
-    print_colored $WHITE "   Row ${ROW_COUNTER}: 👨‍💻 About Developers"
+    print_colored $WHITE "   Row ${ROW_COUNTER}: About Developers"
 }
 
 # Function to send message to Telegram
@@ -1048,3 +1046,4 @@ trap 'print_colored $RED "❌ Script failed at line $LINENO. Check the error abo
 
 # Run main function with all arguments
 main "$@"
+
