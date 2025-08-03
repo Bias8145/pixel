@@ -38,8 +38,8 @@ print_colored() {
 # Function to print banner
 print_banner() {
     print_colored $CYAN "╔════════════════════════════════════════════════════════════════╗"
-    print_colored $CYAN "           VOLD_NAMESPACE Upload Script                                     "
-    print_colored $CYAN "              Enhanced Version v2.1 with microG                            "
+    print_colored $CYAN "                        VOLD_NAMESPACE Upload Script                          "
+    print_colored $CYAN "                      Enhanced Version v2.1 with microG                       "
     print_colored $CYAN "╚════════════════════════════════════════════════════════════════╝"
     echo ""
 }
@@ -940,7 +940,7 @@ log_upload() {
 show_summary() {
     echo ""
     print_colored $GREEN "╔════════════════════════════════════════════════════════════════╗"
-    print_colored $GREEN "║                      UPLOAD COMPLETED                                      ║"
+    print_colored $GREEN "                             UPLOAD COMPLETED                                 "
     print_colored $GREEN "╚════════════════════════════════════════════════════════════════╝"
     print_colored $WHITE "Project: $PROJECT_NAME"
     print_colored $WHITE "Device: $DEVICE_NAME"
@@ -1046,4 +1046,5 @@ trap 'print_colored $RED "❌ Script failed at line $LINENO. Check the error abo
 
 # Run main function with all arguments
 main "$@"
+
 
