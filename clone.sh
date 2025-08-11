@@ -592,102 +592,6 @@ setup_kernelsu_susfs_redbull() {
   
   echo -e "\n${YELLOW}=== Setting up KernelSU-Next + SUSFS for Redbull Kernel ===${RESET}"
   
-  # Check if directory exists and determine action needed
-    if [[ -d "$path" ]]; then
-      local info=$(get_existing_repo_info "$path")
-      local current_url=$(echo "$info" | cut -d'|' -f1)
-      local current_branch=$(echo "$info" | cut -d'|' -f2)
-      
-      if [[ "$current_url" == "$repo" && "$current_branch" == "$branch" ]]; then
-        echo -e "${YELLOW}[SKIP] $component_name - Already up to date${RESET}"
-        skipped_repos+=("$path")
-        continue
-      else
-        echo -e "${MAGENTA}[REPLACE] $component_name - Different repo/branch detected${RESET}"
-        replaced_repos+=("$path")
-      fi
-    fi
-    
-    if clone_repo_with_progress "$repo" "$path" "$branch"; then
-      successful_repos+=("$path")
-    else
-      failed_repos+=("$path")
-    fi
-    echo
-  done
-  
-  # Handle KernelSU setup if selected
-  if [[ "$KERNELSU_OPTION" == "yes" && "$SELECTED_DEVICE" == "Bramble (Pixel 4a 5G)" ]]; then
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo -e " === KernelSU-Next + SUSFS Setup ==="
-    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    
-    if setup_kernelsu_susfs_redbull; then
-      echo -e "${GREEN}[SUCCESS] KernelSU-Next + SUSFS setup completed${RESET}"
-    else
-      echo -e "${RED}[ERROR] KernelSU-Next + SUSFS setup failed${RESET}"
-    fi
-  fi
-  
-  # Final summary with detailed statistics
-  echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo -e " === EXECUTION SUMMARY ==="
-  echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-  
-  local total_repos=${#SELECTED_REPOS[@]}
-  local success_count=${#successful_repos[@]}
-  local skip_count=${#skipped_repos[@]}
-  local replace_count=${#replaced_repos[@]}
-  local fail_count=${#failed_repos[@]}
-  
-  echo -e "\n${CYAN}Statistics:${RESET}"
-  echo -e "  Total repositories: $total_repos"
-  echo -e "  ${GREEN}Successfully cloned: $success_count${RESET}"
-  echo -e "  ${YELLOW}Skipped (up-to-date): $skip_count${RESET}"
-  echo -e "  ${MAGENTA}Replaced: $replace_count${RESET}"
-  echo -e "  ${RED}Failed: $fail_count${RESET}"
-  
-  if [[ ${#successful_repos[@]} -gt 0 ]]; then
-    echo -e "\n${GREEN}Successfully processed:${RESET}"
-    for repo in "${successful_repos[@]}"; do
-      echo -e "  ✓ $(basename "$repo")"
-    done
-  fi
-  
-  if [[ ${#skipped_repos[@]} -gt 0 ]]; then
-    echo -e "\n${YELLOW}Skipped repositories:${RESET}"
-    for repo in "${skipped_repos[@]}"; do
-      echo -e "  ⊝ $(basename "$repo")"
-    done
-  fi
-  
-  if [[ ${#failed_repos[@]} -gt 0 ]]; then
-    echo -e "\n${RED}Failed repositories:${RESET}"
-    for repo in "${failed_repos[@]}"; do
-      echo -e "  ✗ $(basename "$repo")"
-    done
-  fi
-  
-  echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-  
-  # Overall result
-  if [[ ${#failed_repos[@]} -eq 0 ]]; then
-    echo -e "\n${GREEN}[SUCCESS] Process completed successfully!${RESET}"
-  elif [[ ${#successful_repos[@]} -gt 0 ]]; then
-    echo -e "\n${YELLOW}[PARTIAL SUCCESS] Process completed with some issues${RESET}"
-  else
-    echo -e "\n${RED}[FAILURE] Process failed${RESET}"
-  fi
-  
-  echo -e "\n${BLUE}[INFO] You can now proceed with your ROM build.${RESET}"
-}
-
-# Enhanced KernelSU-Next + SUSFS patch for redbull with better error handling
-setup_kernelsu_susfs_redbull() {
-  local kernel_dir="kernel/google/redbull"
-  
-  echo -e "\n${YELLOW}=== Setting up KernelSU-Next + SUSFS for Redbull Kernel ===${RESET}"
-  
   # Check if kernel directory exists
   if [[ ! -d "$kernel_dir" ]]; then
     echo -e "${RED}[✘] Kernel directory not found: $kernel_dir${RESET}"
@@ -958,8 +862,10 @@ main() {
       break
     else
       # User wants to modify - reset selections
-      declare -A SELECTED_REPOS=()
-      declare -A SELECTED_BRANCHES=()
+      unset SELECTED_REPOS
+      declare -A SELECTED_REPOS
+      unset SELECTED_BRANCHES
+      declare -A SELECTED_BRANCHES
       SELECTED_DEVICE=""
       KERNELSU_OPTION=""
     fi
