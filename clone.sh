@@ -222,6 +222,34 @@ select_branch_with_back() {
   done
 }
 
+# Function: Choose repo+branch; if preferred exists, auto-select, else interactive
+choose_repo_branch_with_default() {
+  local path="$1"
+  local preferred_repo="$2"
+  local fallback_repo="$3"
+  local preferred_branch="$4"
+  local component_name
+  component_name=$(basename "$path")
+
+  # If dir exists, show/handle as usual via choose_repo_and_branch_interactive
+  if [[ -d "$path" ]]; then
+    choose_repo_and_branch_interactive "$path" "$preferred_repo" "$fallback_repo"
+    return $?
+  fi
+
+  # Try preferred repo+branch
+  if git ls-remote --heads "$preferred_repo" "$preferred_branch" &>/dev/null; then
+    SELECTED_REPOS["$path"]="$preferred_repo"
+    SELECTED_BRANCHES["$path"]="$preferred_branch"
+    echo -e "${GREEN}[AUTO] $component_name → $preferred_repo ($preferred_branch)${RESET}"
+    return 0
+  fi
+
+  # Try fallback repo (let user choose branch)
+  echo -e "${YELLOW}[WARN] Preferred branch '$preferred_branch' not found for $component_name. Switching to interactive selection.${RESET}"
+  choose_repo_and_branch_interactive "$path" "$preferred_repo" "$fallback_repo"
+}
+
 # Function: Choose repo and branch with confirmation and existing directory handling
 choose_repo_and_branch_interactive() {
   local path=$1
@@ -359,8 +387,7 @@ clone_repo_with_progress() {
       echo -e "${CYAN}Current:${RESET} $current_url (branch: $current_branch)"
       echo -e "${CYAN}Target:${RESET}  $repo_url (branch: $branch)"
       
-      # This should have been handled in the configuration phase
-      # but we'll handle it here as a safety measure
+      # Safety handler
       while true; do
         echo -e "\n${YELLOW}What would you like to do?${RESET}"
         echo "1) Remove existing and clone new repository"
@@ -394,7 +421,7 @@ clone_repo_with_progress() {
     return 1
   fi
 
-  # Simulate progress (you can replace this with actual progress tracking)
+  # Simulate progress
   echo -n -e "${BLUE}[PROGRESS] 25% [█████---------------] Cloning $component_name"
   sleep 0.5
   echo -n -e "\r[PROGRESS] 50% [██████████----------] Cloning $component_name"
@@ -475,7 +502,7 @@ show_final_review() {
 
 # Function: Execute cloning process with enhanced handling
 execute_cloning() {
-  local rom_type="LineageOS"  # You can make this dynamic if needed
+  local rom_type="LineageOS"
   
   echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo -e " === Android Source Repo Cloner ==="
@@ -592,7 +619,6 @@ setup_kernelsu_susfs_redbull() {
   
   echo -e "\n${YELLOW}=== Setting up KernelSU-Next + SUSFS for Redbull Kernel ===${RESET}"
   
-  # Check if kernel directory exists
   if [[ ! -d "$kernel_dir" ]]; then
     echo -e "${RED}[✘] Kernel directory not found: $kernel_dir${RESET}"
     echo -e "${YELLOW}[INFO] Make sure the redbull kernel is cloned first.${RESET}"
@@ -685,7 +711,6 @@ configure_bramble() {
   while true; do
     show_header "$SELECTED_DEVICE" "Configuration"
     
-    # Configure each component
     local components=(
       "device/google/bramble https://github.com/Bias8145/android_device_google_bramble.git https://github.com/LineageOS/android_device_google_bramble.git"
       "device/google/redbull https://github.com/Bias8145/android_device_google_redbull.git https://github.com/LineageOS/android_device_google_redbull.git"
@@ -711,14 +736,13 @@ configure_bramble() {
     done
     
     if [[ "$all_configured" == true ]]; then
-      # Ask about KernelSU option
       if [[ -z "$KERNELSU_OPTION" ]]; then
         echo -e "\n${YELLOW}━━━ KernelSU Configuration ━━━${RESET}"
         ask_confirm_with_back "Apply KernelSU-Next + SUSFS patch for redbull kernel?" "y"
         case $? in
           0) KERNELSU_OPTION="yes" ;;
           1) KERNELSU_OPTION="no" ;;
-          2) continue ;;  # Back to configuration
+          2) continue ;;
         esac
       fi
       break
@@ -730,21 +754,17 @@ configure_bramble() {
 
 configure_coral() {
   SELECTED_DEVICE="Coral (Pixel 4 XL)"
-  
   while true; do
     show_header "$SELECTED_DEVICE" "Configuration"
-    
     local components=(
       "device/google/coral https://github.com/Bias8145/android_device_google_coral.git https://github.com/LineageOS/android_device_google_coral.git"
       "device/google/gs-common https://github.com/Bias8145/android_device_google_gs-common.git https://github.com/LineageOS/android_device_google_gs-common.git"
       "vendor/google/coral https://github.com/TheMuppets/proprietary_vendor_google_coral.git https://github.com/TheMuppets/proprietary_vendor_google_coral.git"
       "kernel/google/msm-4.14 https://github.com/Bias8145/android_kernel_google_msm-4.14.git https://github.com/LineageOS/android_kernel_google_msm-4.14.git"
     )
-    
     local all_configured=true
     for component in "${components[@]}"; do
       read -r path custom_repo official_repo <<< "$component"
-      
       if [[ -z "${SELECTED_REPOS[$path]:-}" ]]; then
         if ! choose_repo_and_branch_interactive "$path" "$custom_repo" "$official_repo"; then
           if [[ $? -eq 254 ]]; then
@@ -756,30 +776,24 @@ configure_coral() {
         fi
       fi
     done
-    
     [[ "$all_configured" == true ]] && break
   done
-  
   return 0
 }
 
 configure_flame() {
   SELECTED_DEVICE="Flame (Pixel 4)"
-  
   while true; do
     show_header "$SELECTED_DEVICE" "Configuration"
-    
     local components=(
       "device/google/coral https://github.com/Bias8145/android_device_google_coral.git https://github.com/LineageOS/android_device_google_coral.git"
       "device/google/gs-common https://github.com/Bias8145/android_device_google_gs-common.git https://github.com/LineageOS/android_device_google_gs-common.git"
       "vendor/google/flame https://github.com/TheMuppets/proprietary_vendor_google_flame.git https://github.com/TheMuppets/proprietary_vendor_google_flame.git"
       "kernel/google/msm-4.14 https://github.com/Bias8145/android_kernel_google_msm-4.14.git https://github.com/LineageOS/android_kernel_google_msm-4.14.git"
     )
-    
     local all_configured=true
     for component in "${components[@]}"; do
       read -r path custom_repo official_repo <<< "$component"
-      
       if [[ -z "${SELECTED_REPOS[$path]:-}" ]]; then
         if ! choose_repo_and_branch_interactive "$path" "$custom_repo" "$official_repo"; then
           if [[ $? -eq 254 ]]; then
@@ -791,30 +805,24 @@ configure_flame() {
         fi
       fi
     done
-    
     [[ "$all_configured" == true ]] && break
   done
-  
   return 0
 }
 
 configure_sunfish() {
   SELECTED_DEVICE="Sunfish (Pixel 4a)"
-  
   while true; do
     show_header "$SELECTED_DEVICE" "Configuration"
-    
     local components=(
       "device/google/sunfish https://github.com/Bias8145/android_device_google_sunfish.git https://github.com/LineageOS/android_device_google_sunfish.git"
       "device/google/gs-common https://github.com/Bias8145/android_device_google_gs-common.git https://github.com/LineageOS/android_device_google_gs-common.git"
       "vendor/google/sunfish https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git"
       "kernel/google/msm-4.14 https://github.com/Bias8145/android_kernel_google_msm-4.14.git https://github.com/LineageOS/android_kernel_google_msm-4.14.git"
     )
-    
     local all_configured=true
     for component in "${components[@]}"; do
       read -r path custom_repo official_repo <<< "$component"
-      
       if [[ -z "${SELECTED_REPOS[$path]:-}" ]]; then
         if ! choose_repo_and_branch_interactive "$path" "$custom_repo" "$official_repo"; then
           if [[ $? -eq 254 ]]; then
@@ -826,10 +834,62 @@ configure_sunfish() {
         fi
       fi
     done
-    
     [[ "$all_configured" == true ]] && break
   done
-  
+  return 0
+}
+
+# === NEW: Raviole (Pixel 6/Pro) ===
+configure_raviole() {
+  SELECTED_DEVICE="Raviole (Pixel 6/Pro)"
+  while true; do
+    show_header "$SELECTED_DEVICE" "Configuration"
+
+    # path | preferred_repo | fallback_repo | preferred_branch
+    choose_repo_branch_with_default \
+      "device/google/raviole" \
+      "https://github.com/xioyo/android_device_google_raviole.git" \
+      "https://github.com/LineageOS/android_device_google_raviole.git" \
+      "android16" || return $?
+
+    choose_repo_branch_with_default \
+      "device/google/gs101" \
+      "https://github.com/xioyo/android_device_google_gs101.git" \
+      "https://github.com/LineageOS/android_device_google_gs101.git" \
+      "sixteen" || return $?
+
+    choose_repo_branch_with_default \
+      "device/google/gs-common" \
+      "https://github.com/LineageOS/android_device_google_gs-common.git" \
+      "https://github.com/LineageOS/android_device_google_gs-common.git" \
+      "lineage-23.0" || return $?
+
+    choose_repo_branch_with_default \
+      "vendor/google/oriole" \
+      "https://github.com/xioyo/proprietary_vendor_google_oriole.git" \
+      "https://github.com/TheMuppets/proprietary_vendor_google_oriole.git" \
+      "lineage-23.0" || return $?
+
+    choose_repo_branch_with_default \
+      "vendor/google/raven" \
+      "https://github.com/TheMuppets/proprietary_vendor_google_raven.git" \
+      "https://github.com/TheMuppets/proprietary_vendor_google_raven.git" \
+      "lineage-23.0" || return $?
+
+    choose_repo_branch_with_default \
+      "device/google/raviole-kernels/lineage" \
+      "https://git.evolution-x.org/Evolution-X-Tensor/device_google_raviole-kernels_evolution.git" \
+      "https://git.evolution-x.org/Evolution-X-Tensor/device_google_raviole-kernels_evolution.git" \
+      "bka" || return $?
+
+    choose_repo_branch_with_default \
+      "packages/apps/PixelParts" \
+      "https://github.com/Evolution-X-Devices/packages_apps_PixelParts.git" \
+      "https://github.com/LineageOS/android_packages_apps_PixelParts.git" \
+      "bka" || return $?
+
+    break
+  done
   return 0
 }
 
@@ -838,7 +898,7 @@ main() {
   while true; do
     # Device selection
     if [[ -z "$SELECTED_DEVICE" ]]; then
-      local devices=("Bramble (Pixel 4a 5G)" "Coral (Pixel 4 XL)" "Flame (Pixel 4)" "Sunfish (Pixel 4a)")
+      local devices=("Bramble (Pixel 4a 5G)" "Coral (Pixel 4 XL)" "Flame (Pixel 4)" "Sunfish (Pixel 4a)" "Raviole (Pixel 6/Pro)")
       select_menu_with_back "Select device to configure:" "${devices[@]}"
       local device_choice=$?
       
@@ -848,6 +908,7 @@ main() {
         1) if ! configure_coral; then [[ $? -eq 254 ]] && continue; fi ;;
         2) if ! configure_flame; then [[ $? -eq 254 ]] && continue; fi ;;
         3) if ! configure_sunfish; then [[ $? -eq 254 ]] && continue; fi ;;
+        4) if ! configure_raviole; then [[ $? -eq 254 ]] && continue; fi ;;
       esac
     fi
     
