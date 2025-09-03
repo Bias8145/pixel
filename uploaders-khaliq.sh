@@ -796,7 +796,7 @@ build_inline_keyboard() {
     
     # URLs for additional downloads
     KSU_NEXT_MANAGER_URL="https://t.me/ksunext/728"
-    SUPPORT_GROUP_URL="https://t.me/Pixel4Roms"
+    SUPPORT_GROUP_URL="https://t.me/pixel6chat"
     MICROG_URL="https://microg.org"
     
     INLINE_KEYBOARD='{"inline_keyboard":['
@@ -1170,5 +1170,6 @@ trap 'print_colored $RED "❌ Script failed at line $LINENO. Check the error abo
 
 # Run main function with all arguments
 main "$@"
+
 
 
