@@ -661,7 +661,7 @@ build_inline_keyboard() {
     print_colored $BLUE "Building inline keyboard..."
     
     # URLs for additional downloads - variant specific
-    KSU_NEXT_MANAGER_URL="https://t.me/ksunext/728"
+    KSU_NEXT_MANAGER_URL="https://t.me/ksunext/585?single"
     SUPPORT_GROUP_URL="https://t.me/another_resource"
     
     # Variant-specific URLs
@@ -1170,6 +1170,7 @@ trap 'print_colored $RED "❌ Script failed at line $LINENO. Check the error abo
 
 # Run main function with all arguments
 main "$@"
+
 
 
 
