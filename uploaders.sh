@@ -1,10 +1,15 @@
-# Updated script to reflect KSU Legacy references
+#!/bin/bash
 
-# Updated download link for the manager
-MANAGER_DOWNLOAD="https://example.com/KernelSU_Legacy_v1.1.1_12857-release.apk"
+# File: uploaders.sh
 
-# Some other script content...
+# Updated the script references
 
-# Replace all occurrences of "KSU Next" with "KSU Legacy"
-# Example command:
-# sed -i 's/KSU Next/KSU Legacy/g' script.sh
+# Replacing KSU Next with KSU Legacy
+KSU_NEXT="https://github.com/KernelSU-Legacy/KernelSU-Legacy/releases/download/v1.1.1/KernelSU_Legacy_v1.1.1_12857-release.apk"
+
+# Manager Download Link
+MANAGER_DOWNLOAD="https://github.com/KernelSU-Legacy/KernelSU-Legacy/releases/download/v1.1.1/KernelSU_Legacy_v1.1.1_12857-release.apk"
+
+# Any other content of your script
+
+# End of uploaders.sh
