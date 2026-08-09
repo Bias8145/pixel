@@ -1,652 +1,236 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Android Source Repo Cloner - high flexibility edition
+# Per-tree source + per-tree branch selection. Nothing is globally locked to LOS/GrapheneOS.
+# Sources: LineageOS, GrapheneOS, Bias8145, TheMuppets, or any manual repository.
+set -Eeuo pipefail
 
-# Android Source Repo Cloner
-# Custom/Official source selection with live repository/branch validation.
-# Official LineageOS device/kernel sources use LineageOS; official vendor sources use TheMuppets.
-# GrapheneOS uses its official platform manifest instead of mixing LineageOS device/vendor trees.
+readonly C_RESET='\033[0m' C_BOLD='\033[1m' C_CYAN='\033[0;36m' C_GREEN='\033[0;32m'
+readonly C_RED='\033[0;31m' C_YELLOW='\033[1;33m' C_BLUE='\033[0;34m' C_MAGENTA='\033[0;35m'
 
-set -o pipefail
+declare -A REPO BRANCH SOURCE
+DEVICE=""
+DRY_RUN=0
 
-GREEN="\033[0;32m"
-RED="\033[0;31m"
-YELLOW="\033[1;33m"
-CYAN="\033[0;36m"
-BLUE="\033[0;34m"
-BOLD="\033[1m"
-RESET="\033[0m"
-MAGENTA="\033[0;35m"
+need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo -e "${C_RED}[ERROR] Missing: $1${C_RESET}"; exit 1; }; }
+for x in git curl; do need_cmd "$x"; done
 
-declare -A SELECTED_REPOS=()
-declare -A SELECTED_BRANCHES=()
-declare -A SELECTED_SOURCES=()
-SELECTED_DEVICE=""
-KERNELSU_OPTION=""
-DRY_RUN="no"
-
-trap 'echo; echo "[ABORTED] Process cancelled by user"; exit 1' INT
-
-for cmd in git curl patch; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo -e "${RED}[ERROR] Required tool '$cmd' is missing. Please install it first.${RESET}"
-    exit 1
-  fi
-done
-
-echo
-echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-echo -e "${BOLD} === Android Source Repo Cloner ===${RESET}"
-echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-
-show_header() {
-  local device="$1" action="$2"
-  echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-  echo -e "${BOLD} === $action for $device ===${RESET}"
-  echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-}
-
-ask_confirm() {
-  local prompt="$1" default="${2:-y}" answer
-  while true; do
-    echo -e "\n${prompt}"
-    echo "Options: [y]es, [n]o, [b]ack"
-    read -rp "Your choice [$default]: " answer
-    answer="${answer:-$default}"
-    case "$answer" in
-      [Yy]) return 0 ;;
-      [Nn]) return 1 ;;
-      [Bb]) return 254 ;;
-      *) echo -e "${YELLOW}Please answer y, n, or b.${RESET}" ;;
-    esac
-  done
-}
-
-select_menu() {
+menu() {
   local title="$1"; shift
-  local options=("$@") choice
-  while true; do
-    echo -e "\n${CYAN}$title${RESET}"
-    local i
-    for i in "${!options[@]}"; do echo "$((i + 1))) ${options[$i]}"; done
+  local -a opts=("$@") n
+  while :; do
+    echo -e "\n${C_CYAN}${title}${C_RESET}"
+    for n in "${!opts[@]}"; do echo "$((n+1))) ${opts[n]}"; done
     echo "b) Back"
     echo "q) Quit"
-    read -rp "Enter your choice: " choice
-    case "$choice" in
-      [0-9]*)
-        if (( choice >= 1 && choice <= ${#options[@]} )); then return $((choice - 1)); fi
-        ;;
-      [Bb]) return 254 ;;
-      [Qq]) exit 0 ;;
+    read -r -p "> " ans
+    case "$ans" in
+      [0-9]*) ((ans>=1 && ans<=${#opts[@]})) && return $((ans-1)) ;;
+      b|B) return 254 ;;
+      q|Q) exit 0 ;;
     esac
-    echo -e "${RED}Invalid selection.${RESET}"
+    echo -e "${C_RED}Invalid choice.${C_RESET}"
   done
 }
 
-normalize_repo_url() {
-  local url="$1"
-  url="${url%.git}"
-  url="${url%/}"
-  echo "$url"
+normalize_url() { local u="${1%.git}"; echo "${u%/}"; }
+valid_path() { [[ "$1" != /* && "$1" != *..* && "$1" =~ ^[A-Za-z0-9._/-]+$ ]]; }
+
+list_branches() {
+  local url="$1"; local -a out=()
+  mapfile -t out < <(git ls-remote --heads "$url" 2>/dev/null | awk '{sub("refs/heads/","",$2); print $2}' | sort -V)
+  ((${#out[@]})) || return 1
+  printf '%s\n' "${out[@]}"
 }
 
-get_existing_repo_info() {
-  local target_dir="$1" repo_url="" repo_branch=""
-  if [[ -d "$target_dir/.git" ]]; then
-    pushd "$target_dir" >/dev/null 2>&1 || return 1
-    repo_url=$(git config --get remote.origin.url 2>/dev/null || echo "Unknown")
-    repo_branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "Unknown")
-    popd >/dev/null 2>&1 || true
-  fi
-  echo "$repo_url|$repo_branch"
-}
-
-check_existing_directory() {
-  local target_dir="$1"
-  [[ -d "$target_dir" ]] || return 1
-  local info current_url current_branch
-  info=$(get_existing_repo_info "$target_dir")
-  current_url="${info%%|*}"
-  current_branch="${info#*|}"
-  echo -e "\n${YELLOW}[WARNING] Directory already exists: $target_dir${RESET}"
-  echo -e "${MAGENTA}Existing Repository Info:${RESET}"
-  echo -e "  └─ URL: ${CYAN}$current_url${RESET}"
-  echo -e "  └─ Branch: ${CYAN}$current_branch${RESET}"
-  [[ -d "$target_dir/.git" ]] || echo -e "  └─ ${RED}Not a Git repository${RESET}"
-  return 0
-}
-
-validate_repo() {
-  local repo_url="$1"
-  [[ -n "$repo_url" ]] || { echo -e "${RED}[ERROR] Repository URL is empty.${RESET}"; return 1; }
-  echo -e "${BLUE}[VALIDATE] Checking repository: $repo_url${RESET}"
-  local heads
-  heads=$(git ls-remote --heads "$repo_url" 2>/dev/null) || {
-    echo -e "${RED}[ERROR] Repository is unreachable or inaccessible: $repo_url${RESET}"
-    return 1
-  }
-  [[ -n "$heads" ]] || {
-    echo -e "${RED}[ERROR] Repository has no visible branches: $repo_url${RESET}"
-    return 1
-  }
-  local default_branch=""
-  default_branch=$(git ls-remote --symref "$repo_url" HEAD 2>/dev/null | awk '/^ref:/ {sub("refs/heads/", "", $2); print $2; exit}')
-  echo -e "${GREEN}[OK] Repository accessible.${RESET}"
-  [[ -n "$default_branch" ]] && echo -e "  └─ Default branch: ${CYAN}$default_branch${RESET}"
-  return 0
-}
-
-select_branch() {
-  local repo_url="$1" component="$2" selected choice
-  local -a branches=()
-  echo -e "\n${BLUE}[INFO] Fetching branches from $repo_url${RESET}"
-  mapfile -t branches < <(git ls-remote --heads "$repo_url" 2>/dev/null | awk '{print $2}' | sed 's#refs/heads/##' | sort -V)
-  if (( ${#branches[@]} == 0 )); then
-    echo -e "${RED}[ERROR] No branches found or repository is unreachable.${RESET}"
-    return 1
-  fi
-  echo -e "\n${CYAN}Available branches for $component:${RESET}"
-  local i
-  for i in "${!branches[@]}"; do echo "$((i + 1))) ${branches[$i]}"; done
+pick_branch() {
+  local url="$1" component="$2"; local -a bs=(); local i
+  mapfile -t bs < <(list_branches "$url") || { echo -e "${C_RED}[ERROR] Cannot read branches: $url${C_RESET}"; return 1; }
+  echo -e "${C_CYAN}Branches for ${component}:${C_RESET}"
+  for i in "${!bs[@]}"; do echo "$((i+1))) ${bs[i]}"; done
+  echo "m) Manual branch/tag/ref"
   echo "b) Back"
-  while true; do
-    read -rp "Select branch [1-${#branches[@]}, b]: " choice
-    case "$choice" in
-      [0-9]*)
-        if (( choice >= 1 && choice <= ${#branches[@]} )); then
-          selected="${branches[$((choice - 1))]}"
-          if ! git ls-remote --exit-code --heads "$repo_url" "refs/heads/$selected" >/dev/null 2>&1; then
-            echo -e "${RED}[ERROR] Branch '$selected' is no longer available. Refreshing...${RESET}"
-            continue
-          fi
-          SELECTED_BRANCH="$selected"
-          echo -e "${GREEN}[OK] Selected branch: $selected${RESET}"
-          return 0
-        fi
-        ;;
-      [Bb]) return 254 ;;
+  while :; do
+    read -r -p "> " ans
+    case "$ans" in
+      [0-9]*) if ((ans>=1 && ans<=${#bs[@]})); then SELECTED_BRANCH="${bs[ans-1]}"; return 0; fi ;;
+      m|M) read -r -p "Branch/tag/ref: " SELECTED_BRANCH; [[ -n "$SELECTED_BRANCH" ]] && return 0 ;;
+      b|B) return 254 ;;
     esac
-    echo -e "${RED}Invalid branch selection.${RESET}"
+    echo -e "${C_RED}Invalid branch.${C_RESET}"
   done
 }
 
-validate_target_path() {
+repo_name_for() {
+  local source="$1" path="$2" p="${2//\//_}"
+  case "$source" in
+    LineageOS|Bias8145) echo "https://github.com/${source}/android_${p}.git" ;;
+    GrapheneOS) echo "https://github.com/GrapheneOS/${p}.git" ;;
+    TheMuppets) echo "https://github.com/TheMuppets/proprietary_${p}.git" ;;
+  esac
+}
+
+source_repo() {
+  local path="$1" component="${1##*/}" choice repo source
+  while :; do
+    menu "Source for ${path}" \
+      "LineageOS official" \
+      "GrapheneOS official (if a standalone tree is published)" \
+      "Bias8145/custom source" \
+      "TheMuppets vendor source" \
+      "Manual repository URL"
+    choice=$?
+    case "$choice" in
+      254) return 254 ;;
+      0) repo="$(repo_name_for LineageOS "$path")"; source="LineageOS" ;;
+      1) repo="$(repo_name_for GrapheneOS "$path")"; source="GrapheneOS" ;;
+      2) repo="$(repo_name_for Bias8145 "$path")"; source="Bias8145" ;;
+      3) repo="$(repo_name_for TheMuppets "$path")"; source="TheMuppets" ;;
+      4) read -r -p "Repository URL: " repo; source="Custom" ;;
+      *) continue ;;
+    esac
+    [[ -n "$repo" ]] || continue
+    if ! git ls-remote --heads "$repo" >/dev/null 2>&1; then
+      echo -e "${C_YELLOW}[WARN] Repository unavailable: $repo${C_RESET}"
+      continue
+    fi
+    pick_branch "$repo" "$component" || continue
+    echo -e "${C_GREEN}Selected:${C_RESET} $source | $repo | $SELECTED_BRANCH"
+    menu "Confirm ${path}" "Confirm" "Choose another source" "Choose another branch"
+    case "$?" in
+      0) REPO["$path"]="$repo"; BRANCH["$path"]="$SELECTED_BRANCH"; SOURCE["$path"]="$source"; return 0 ;;
+      1) continue ;;
+      2) pick_branch "$repo" "$component" || continue ;;
+    esac
+  done
+}
+
+add_component() {
   local path="$1"
-  [[ "$path" != /* ]] || { echo -e "${RED}[ERROR] Target path must be relative: $path${RESET}"; return 1; }
-  [[ "$path" != *".."* ]] || { echo -e "${RED}[ERROR] Target path contains '..': $path${RESET}"; return 1; }
-  [[ "$path" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo -e "${RED}[ERROR] Invalid target path: $path${RESET}"; return 1; }
+  valid_path "$path" || { echo -e "${C_RED}[ERROR] Invalid target path: $path${C_RESET}"; return 1; }
+  source_repo "$path"
 }
 
-validate_component_source() {
-  local path="$1" source="$2" repo="$3"
-  if [[ "$source" == "grapheneos" ]]; then
-    [[ "$repo" == https://github.com/GrapheneOS/platform_manifest.git ]] || {
-      echo -e "${RED}[ERROR] GrapheneOS source must use the official platform manifest.${RESET}"; return 1;
-    }
-    return 0
+discover_dependencies() {
+  local path="$1" url="${REPO[$path]}" branch="${BRANCH[$path]}" raw tmp repo_path
+  repo_path="${url#https://github.com/}"; repo_path="${repo_path%.git}"
+  raw="https://raw.githubusercontent.com/${repo_path}/${branch}/lineage.dependencies"
+  tmp="$(curl -fsSL "$raw" 2>/dev/null || true)"
+  [[ -n "$tmp" ]] || return 0
+  echo "$tmp" | sed -n 's/.*"repository":[[:space:]]*"\([^"]*\)".*"target_path":[[:space:]]*"\([^"]*\)".*/\1|\2/p'
+}
+
+clone_one() {
+  local path="$1" url="${REPO[$path]}" branch="${BRANCH[$path]}" current_url current_branch
+  echo -e "${C_BLUE}[CLONE]${C_RESET} $url [$branch] -> $path"
+  if ((DRY_RUN)); then echo "       git clone --depth=1 -b '$branch' '$url' '$path'"; return 0; fi
+  if [[ -d "$path/.git" ]]; then
+    current_url="$(git -C "$path" remote get-url origin 2>/dev/null || true)"
+    current_branch="$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null || true)"
+    if [[ "$(normalize_url "$current_url")" == "$(normalize_url "$url")" && "$current_branch" == "$branch" ]]; then
+      echo -e "${C_YELLOW}[SKIP] Already matches.${C_RESET}"; return 2
+    fi
+    echo -e "${C_YELLOW}[EXISTS] $path${C_RESET}"
+    menu "Existing repository" "Keep existing" "Remove and clone selected" "Cancel"
+    case "$?" in
+      0) return 2 ;;
+      1) rm -rf -- "$path" ;;
+      2) return 3 ;;
+    esac
+  elif [[ -e "$path" ]]; then
+    echo -e "${C_RED}[ERROR] Target exists and is not a Git repository: $path${C_RESET}"; return 1
   fi
-  case "$path" in
-    vendor/*)
-      if [[ "$source" == "official" && "$repo" != *TheMuppets/* ]]; then
-        echo -e "${RED}[ERROR] Official vendor repositories must come from TheMuppets.${RESET}"; return 1
-      fi
-      ;;
-    device/*|kernel/*)
-      if [[ "$source" == "official" && "$repo" != *LineageOS/* ]]; then
-        echo -e "${RED}[ERROR] Official device/kernel repositories must come from LineageOS.${RESET}"; return 1
-      fi
-      ;;
+  mkdir -p "$(dirname "$path")"
+  git clone --depth=1 --branch "$branch" --single-branch "$url" "$path"
+}
+
+show_config() {
+  local p
+  echo -e "\n${C_BOLD}========== FINAL CONFIGURATION ==========${C_RESET}"
+  echo "Device: $DEVICE"
+  for p in "${!REPO[@]}"; do
+    printf '  %-42s %-12s %s [%s]\n' "$p" "${SOURCE[$p]}" "${BRANCH[$p]}" "${REPO[$p]}"
+  done | sort
+  echo -e "${C_BOLD}==========================================${C_RESET}"
+}
+
+configure_pixel() {
+  local codename="$1"
+  DEVICE="$codename"
+  REPO=(); BRANCH=(); SOURCE=()
+  local -a defaults=()
+  case "$codename" in
+    bramble) defaults=("device/google/bramble" "device/google/redbull" "device/google/gs-common" "vendor/google/bramble" "kernel/google/redbull") ;;
+    coral) defaults=("device/google/coral" "device/google/gs-common" "vendor/google/coral" "kernel/google/msm-4.14") ;;
+    flame) defaults=("device/google/coral" "device/google/gs-common" "vendor/google/flame" "kernel/google/msm-4.14") ;;
+    sunfish) defaults=("device/google/sunfish" "device/google/gs-common" "vendor/google/sunfish" "kernel/google/msm-4.14") ;;
+    redfin) defaults=("device/google/redfin" "device/google/redbull" "device/google/gs-common" "vendor/google/redfin" "kernel/google/redbull") ;;
+    oriole) defaults=("device/google/oriole" "device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/raviole-kernels" "vendor/google/oriole") ;;
+    raven) defaults=("device/google/raven" "device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/raviole-kernels" "vendor/google/raven") ;;
+    *) return 1 ;;
   esac
-  return 0
-}
-
-choose_repo_and_branch() {
-  local path="$1" custom_repo="$2" official_repo="$3"
-  local component="$(basename "$path")" repo_choice selected_repo source_label source_key rc
-  validate_target_path "$path" || return 1
-
-  while true; do
-    show_header "$SELECTED_DEVICE" "Configuring $component"
-    if check_existing_directory "$path"; then
-      echo "1) Replace with a new repository"
-      echo "2) Keep existing repository"
-      echo "3) Back"
-      read -rp "Your choice [1-3]: " rc
-      case "$rc" in
-        1) ;;
-        2)
-          local info current_url current_branch
-          info=$(get_existing_repo_info "$path")
-          current_url="${info%%|*}"; current_branch="${info#*|}"
-          if [[ "$current_url" == "Unknown" || "$current_branch" == "Unknown" ]]; then
-            echo -e "${RED}[ERROR] Cannot safely keep this directory.${RESET}"; continue
-          fi
-          SELECTED_REPOS["$path"]="$current_url"
-          SELECTED_BRANCHES["$path"]="$current_branch"
-          SELECTED_SOURCES["$path"]="existing"
-          echo -e "${GREEN}[KEEP] $path${RESET}"
-          return 0
-          ;;
-        3) return 254 ;;
-        *) echo -e "${RED}Invalid choice.${RESET}"; continue ;;
-      esac
-    fi
-
-    if [[ -n "$custom_repo" ]]; then
-      if [[ "$path" == vendor/* ]]; then
-        source_label="Official / Custom (Official = TheMuppets)"
-        select_menu "Choose source repository for $path:" \
-          "Custom: $custom_repo" \
-          "Official: $official_repo (TheMuppets)"
-      else
-        source_label="Official / Custom (Official = LineageOS)"
-        select_menu "Choose source repository for $path:" \
-          "Custom: $custom_repo" \
-          "Official: $official_repo (LineageOS)"
-      fi
-      repo_choice=$?
-      case "$repo_choice" in
-        254) return 254 ;;
-        0) selected_repo="$custom_repo"; source_key="custom" ;;
-        1) selected_repo="$official_repo"; source_key="official" ;;
-        *) return 1 ;;
-      esac
-    else
-      source_label="Official / LineageOS"
-      selected_repo="$official_repo"
-      source_key="official"
-    fi
-
-    if ! validate_component_source "$path" "$source_key" "$selected_repo"; then continue; fi
-    if ! validate_repo "$selected_repo"; then continue; fi
-    select_branch "$selected_repo" "$component"
-    rc=$?
-    if (( rc == 254 )); then continue; fi
-    if (( rc != 0 )); then continue; fi
-
-    echo -e "\n${CYAN}━━━━━━━━ COMPONENT REVIEW ━━━━━━━━${RESET}"
-    echo -e "Component : ${BOLD}$component${RESET}"
-    echo -e "Source    : ${BOLD}$source_label${RESET}"
-    echo -e "Repository: ${BOLD}$selected_repo${RESET}"
-    echo -e "Branch    : ${BOLD}$SELECTED_BRANCH${RESET}"
-    echo -e "Target    : ${BOLD}$path${RESET}"
-    echo "1) Confirm this selection"
-    echo "2) Re-select repository"
-    echo "3) Re-select branch"
-    echo "4) Back"
-    read -rp "Your choice [1-4]: " rc
-    case "$rc" in
-      1)
-        SELECTED_REPOS["$path"]="$selected_repo"
-        SELECTED_BRANCHES["$path"]="$SELECTED_BRANCH"
-        SELECTED_SOURCES["$path"]="$source_key"
-        echo -e "${GREEN}[OK] Configuration saved for $component${RESET}"
-        return 0
-        ;;
-      2) continue ;;
-      3) select_branch "$selected_repo" "$component" || continue ;;
-      4) return 254 ;;
-      *) echo -e "${RED}Invalid choice.${RESET}" ;;
+  echo -e "\n${C_BOLD}${C_CYAN}Every component is independent.${C_RESET}"
+  echo "Mix LineageOS, GrapheneOS, Bias8145, TheMuppets and manual repositories as desired."
+  echo "Each component has its own repository and branch selection."
+  local p
+  for p in "${defaults[@]}"; do add_component "$p" || return $?; done
+  while :; do
+    show_config
+    menu "Component editor" \
+      "Add another component/path" \
+      "Reconfigure an existing component" \
+      "Remove a component" \
+      "Auto-discover Lineage dependencies" \
+      "Continue"
+    case "$?" in
+      0) read -r -p "Target path: " p; add_component "$p" || true ;;
+      1) read -r -p "Target path: " p; [[ -n "${REPO[$p]+x}" ]] && add_component "$p" || echo "Unknown component." ;;
+      2) read -r -p "Target path to remove: " p; unset 'REPO[$p]' 'BRANCH[$p]' 'SOURCE[$p]' ;;
+      3) echo -e "${C_CYAN}Dependency candidates:${C_RESET}"; for p in "${!REPO[@]}"; do discover_dependencies "$p" || true; done ;;
+      4) break ;;
     esac
   done
 }
 
-configure_standard_device() {
-  local device="$1"; shift
-  SELECTED_DEVICE="$device"
-  local components=("$@") entry path custom_repo official_repo rc
-  for entry in "${components[@]}"; do
-    IFS='|' read -r path custom_repo official_repo <<< "$entry"
-    choose_repo_and_branch "$path" "$custom_repo" "$official_repo"
-    rc=$?
-    if (( rc != 0 )); then return "$rc"; fi
-  done
-}
-
-configure_bramble() {
-  configure_standard_device "Bramble (Pixel 4a 5G)" \
-    "device/google/bramble|https://github.com/Bias8145/android_device_google_bramble.git|https://github.com/LineageOS/android_device_google_bramble.git" \
-    "device/google/redbull|https://github.com/Bias8145/android_device_google_redbull.git|https://github.com/LineageOS/android_device_google_redbull.git" \
-    "device/google/gs-common|https://github.com/Bias8145/android_device_google_gs-common.git|https://github.com/LineageOS/android_device_google_gs-common.git" \
-    "vendor/google/bramble|https://github.com/TheMuppets/proprietary_vendor_google_bramble.git|https://github.com/TheMuppets/proprietary_vendor_google_bramble.git" \
-    "kernel/google/redbull|https://github.com/Bias8145/android_kernel_google_redbull.git|https://github.com/LineageOS/android_kernel_google_redbull.git"
-}
-
-configure_coral() {
-  configure_standard_device "Coral (Pixel 4 XL)" \
-    "device/google/coral|https://github.com/Bias8145/android_device_google_coral.git|https://github.com/LineageOS/android_device_google_coral.git" \
-    "device/google/gs-common|https://github.com/Bias8145/android_device_google_gs-common.git|https://github.com/LineageOS/android_device_google_gs-common.git" \
-    "vendor/google/coral|https://github.com/TheMuppets/proprietary_vendor_google_coral.git|https://github.com/TheMuppets/proprietary_vendor_google_coral.git" \
-    "kernel/google/msm-4.14|https://github.com/Bias8145/android_kernel_google_msm-4.14.git|https://github.com/LineageOS/android_kernel_google_msm-4.14.git"
-}
-
-configure_flame() {
-  configure_standard_device "Flame (Pixel 4)" \
-    "device/google/coral|https://github.com/Bias8145/android_device_google_coral.git|https://github.com/LineageOS/android_device_google_coral.git" \
-    "device/google/gs-common|https://github.com/Bias8145/android_device_google_gs-common.git|https://github.com/LineageOS/android_device_google_gs-common.git" \
-    "vendor/google/flame|https://github.com/TheMuppets/proprietary_vendor_google_flame.git|https://github.com/TheMuppets/proprietary_vendor_google_flame.git" \
-    "kernel/google/msm-4.14|https://github.com/Bias8145/android_kernel_google_msm-4.14.git|https://github.com/LineageOS/android_kernel_google_msm-4.14.git"
-}
-
-configure_sunfish() {
-  configure_standard_device "Sunfish (Pixel 4a)" \
-    "device/google/sunfish|https://github.com/Bias8145/android_device_google_sunfish.git|https://github.com/LineageOS/android_device_google_sunfish.git" \
-    "device/google/gs-common|https://github.com/Bias8145/android_device_google_gs-common.git|https://github.com/LineageOS/android_device_google_gs-common.git" \
-    "vendor/google/sunfish|https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git|https://github.com/TheMuppets/proprietary_vendor_google_sunfish.git" \
-    "kernel/google/msm-4.14|https://github.com/Bias8145/android_kernel_google_msm-4.14.git|https://github.com/LineageOS/android_kernel_google_msm-4.14.git"
-}
-
-configure_redfin() {
-  configure_standard_device "Redfin (Pixel 5)" \
-    "device/google/redfin|https://github.com/Bias8145/android_device_google_redfin.git|https://github.com/LineageOS/android_device_google_redfin.git" \
-    "device/google/redbull|https://github.com/Bias8145/android_device_google_redbull.git|https://github.com/LineageOS/android_device_google_redbull.git" \
-    "device/google/gs-common||https://github.com/LineageOS/android_device_google_gs-common.git" \
-    "vendor/google/redfin||https://github.com/TheMuppets/proprietary_vendor_google_redfin.git" \
-    "kernel/google/redbull|https://github.com/Bias8145/android_kernel_google_redbull.git|https://github.com/LineageOS/android_kernel_google_redbull.git"
-}
-
-configure_grapheneos() {
-  local codename="$1" model="$2"
-  SELECTED_DEVICE="$model - GrapheneOS"
-  echo -e "\n${CYAN}GrapheneOS source mode${RESET}"
-  echo "Official GrapheneOS uses the platform manifest; it does not mix LineageOS device/vendor trees."
-  echo "The current development branch is 17."
-  if ! command -v repo >/dev/null 2>&1; then
-    echo -e "${RED}[ERROR] 'repo' is required for GrapheneOS source initialization.${RESET}"
-    return 1
-  fi
-  SELECTED_REPOS["."]="https://github.com/GrapheneOS/platform_manifest.git"
-  SELECTED_BRANCHES["."]="17"
-  SELECTED_SOURCES["."]="grapheneos"
-  echo -e "${GREEN}[OK] GrapheneOS manifest selected for $codename.${RESET}"
-}
-
-configure_oriole() {
-  select_menu "Choose OS for Oriole (Pixel 6):" "LineageOS" "GrapheneOS"
-  local choice=$?
-  case "$choice" in
-    254) return 254 ;;
-    0)
-      configure_standard_device "Oriole (Pixel 6) - LineageOS" \
-        "device/google/oriole||https://github.com/LineageOS/android_device_google_oriole.git" \
-        "device/google/raviole||https://github.com/LineageOS/android_device_google_raviole.git" \
-        "device/google/gs101||https://github.com/LineageOS/android_device_google_gs101.git" \
-        "device/google/gs-common||https://github.com/LineageOS/android_device_google_gs-common.git" \
-        "device/google/raviole-kernels||https://github.com/LineageOS/android_device_google_raviole-kernels.git" \
-        "vendor/google/oriole||https://github.com/TheMuppets/proprietary_vendor_google_oriole.git"
-      ;;
-    1) configure_grapheneos "oriole" "Oriole (Pixel 6)" ;;
+execute() {
+  local p rc failed=0
+  show_config
+  menu "Execution" "Clone selected repositories" "Dry run" "Edit configuration" "Cancel"
+  case "$?" in
+    0) DRY_RUN=0 ;;
+    1) DRY_RUN=1 ;;
+    2) return 10 ;;
+    3) return 11 ;;
   esac
-}
-
-configure_raven() {
-  select_menu "Choose OS for Raven (Pixel 6 Pro):" "LineageOS" "GrapheneOS"
-  local choice=$?
-  case "$choice" in
-    254) return 254 ;;
-    0)
-      configure_standard_device "Raven (Pixel 6 Pro) - LineageOS" \
-        "device/google/raven||https://github.com/LineageOS/android_device_google_raven.git" \
-        "device/google/raviole||https://github.com/LineageOS/android_device_google_raviole.git" \
-        "device/google/gs101||https://github.com/LineageOS/android_device_google_gs101.git" \
-        "device/google/gs-common||https://github.com/LineageOS/android_device_google_gs-common.git" \
-        "device/google/raviole-kernels||https://github.com/LineageOS/android_device_google_raviole-kernels.git" \
-        "vendor/google/raven||https://github.com/TheMuppets/proprietary_vendor_google_raven.git"
-      ;;
-    1) configure_grapheneos "raven" "Raven (Pixel 6 Pro)" ;;
-  esac
-}
-
-validate_all_configuration() {
-  local -a paths=() errors=() targets=()
-  local path repo branch source target
-  for path in "${!SELECTED_REPOS[@]}"; do paths+=("$path"); done
-  (( ${#paths[@]} > 0 )) || { echo -e "${RED}[ERROR] No repositories selected.${RESET}"; return 1; }
-  for path in "${paths[@]}"; do
-    repo="${SELECTED_REPOS[$path]}"; branch="${SELECTED_BRANCHES[$path]}"; source="${SELECTED_SOURCES[$path]}"
-    validate_target_path "$path" >/dev/null || errors+=("Invalid target: $path")
-    for target in "${targets[@]}"; do [[ "$target" == "$path" ]] && errors+=("Duplicate target: $path"); done
-    targets+=("$path")
-    if [[ "$source" != "existing" ]]; then
-      validate_component_source "$path" "$source" "$repo" >/dev/null || errors+=("Invalid source: $path")
-      git ls-remote --exit-code --heads "$repo" "refs/heads/$branch" >/dev/null 2>&1 || errors+=("Repository/branch unavailable: $repo [$branch]")
-    fi
-    [[ -n "$repo" && -n "$branch" ]] || errors+=("Missing repository or branch: $path")
+  for p in $(printf '%s\n' "${!REPO[@]}" | sort); do
+    clone_one "$p"; rc=$?
+    case "$rc" in 0|2) ;; 3) return 11 ;; *) failed=1 ;; esac
   done
-  if (( ${#errors[@]} > 0 )); then
-    echo -e "${RED}[ERROR] Configuration validation failed:${RESET}"
-    printf '  - %s\n' "${errors[@]}"
-    return 1
-  fi
-  echo -e "${GREEN}[SUCCESS] All selected repositories and branches validated.${RESET}"
-  return 0
-}
-
-show_final_review() {
-  echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-  echo -e "${BOLD} === FINAL CONFIGURATION REVIEW ===${RESET}"
-  echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-  echo -e "${CYAN}Selected Device: ${BOLD}$SELECTED_DEVICE${RESET}"
-  echo -e "\n${CYAN}Repositories:${RESET}"
-  local -a paths=() sorted=()
-  local path repo branch source info current_url current_branch action
-  for path in "${!SELECTED_REPOS[@]}"; do paths+=("$path"); done
-  mapfile -t sorted < <(printf '%s\n' "${paths[@]}" | sort)
-  for path in "${sorted[@]}"; do
-    repo="${SELECTED_REPOS[$path]}"; branch="${SELECTED_BRANCHES[$path]}"; source="${SELECTED_SOURCES[$path]}"; action="CLONE"
-    if [[ "$source" == "grapheneos" ]]; then
-      action="REPO INIT + SYNC"
-    elif [[ -d "$path" ]]; then
-      info=$(get_existing_repo_info "$path"); current_url="${info%%|*}"; current_branch="${info#*|}"
-      if [[ "$(normalize_repo_url "$current_url")" == "$(normalize_repo_url "$repo")" && "$current_branch" == "$branch" ]]; then action="SKIP"; else action="REPLACE"; fi
-    fi
-    echo -e "  ${YELLOW}├─ $path${RESET} [${action}]"
-    echo -e "  │  Source: $source"
-    echo -e "  │  Repo: $repo"
-    echo -e "  │  Branch: $branch"
-  done
-  echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-  echo "1) Proceed to clone"
-  echo "2) Dry run (show commands only)"
-  echo "3) Modify selections"
-  echo "4) Cancel"
-  local choice
-  while true; do
-    read -rp "Your choice [1-4]: " choice
-    case "$choice" in
-      1) DRY_RUN="no"; return 0 ;;
-      2) DRY_RUN="yes"; return 0 ;;
-      3) return 1 ;;
-      4) return 2 ;;
-      *) echo -e "${RED}Invalid choice.${RESET}" ;;
-    esac
-  done
-}
-
-final_clone_confirmation() {
-  echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-  echo -e "${BOLD} === CLONE CONFIRMATION ===${RESET}"
-  echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-  echo -e "${YELLOW}WARNING: The selected actions may create, replace, or modify directories in the current source tree.${RESET}"
-  echo -e "${CYAN}Configuration has passed repository, branch, and target validation.${RESET}\n"
-  if [[ "$DRY_RUN" == "yes" ]]; then
-    echo -e "${CYAN}DRY RUN: no filesystem changes will be made.${RESET}"
-    ask_confirm "Run dry-run now?" "y"
-    return $?
-  fi
-  echo "1) YES - CLONE EVERYTHING"
-  echo "2) EDIT CONFIGURATION"
-  echo "3) CANCEL"
-  local choice
-  while true; do
-    read -rp "Your choice [1-3]: " choice
-    case "$choice" in
-      1) return 0 ;;
-      2) return 1 ;;
-      3) return 2 ;;
-      *) echo -e "${RED}Invalid choice.${RESET}" ;;
-    esac
-  done
-}
-
-clone_repo() {
-  local repo="$1" target="$2" branch="$3" component="$(basename "$target")"
-  echo -e "${BLUE}[ACTION] $repo [$branch] -> $target${RESET}"
-  if [[ "$DRY_RUN" == "yes" ]]; then
-    echo "DRY-RUN: git clone --branch '$branch' --single-branch '$repo' '$target'"
-    return 0
-  fi
-  if [[ -d "$target" ]]; then
-    local info current_url current_branch
-    info=$(get_existing_repo_info "$target"); current_url="${info%%|*}"; current_branch="${info#*|}"
-    if [[ "$(normalize_repo_url "$current_url")" == "$(normalize_repo_url "$repo")" && "$current_branch" == "$branch" ]]; then
-      echo -e "${YELLOW}[SKIP] $component already matches.${RESET}"; return 2
-    fi
-    echo -e "${YELLOW}[WARNING] Existing directory differs from target repository/branch.${RESET}"
-    echo "1) Remove and clone new repository"
-    echo "2) Skip"
-    echo "3) Cancel entire process"
-    local choice
-    read -rp "Your choice [1-3]: " choice
-    case "$choice" in
-      1) rm -rf -- "$target" || return 1 ;;
-      2) return 2 ;;
-      3) return 3 ;;
-      *) echo -e "${RED}Invalid choice.${RESET}"; return 1 ;;
-    esac
-  fi
-  git ls-remote --exit-code --heads "$repo" "refs/heads/$branch" >/dev/null 2>&1 || {
-    echo -e "${RED}[ERROR] Repository/branch is no longer available: $repo [$branch]${RESET}"; return 1;
-  }
-  mkdir -p "$(dirname "$target")" || return 1
-  if git clone --branch "$branch" --single-branch "$repo" "$target"; then
-    echo -e "${GREEN}[SUCCESS] Clone completed: $target${RESET}"; return 0
-  fi
-  echo -e "${RED}[ERROR] Failed to clone $repo [$branch]${RESET}"; return 1
-}
-
-setup_kernelsu_susfs_redbull() {
-  local kernel_dir="kernel/google/redbull"
-  [[ -d "$kernel_dir" ]] || { echo -e "${RED}[ERROR] Kernel directory not found: $kernel_dir${RESET}"; return 1; }
-  local original_dir="$PWD"
-  cd "$kernel_dir" || return 1
-  echo ">>> [1/9] Setting up KernelSU-Next v1.0.3"
-  curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s v1.0.3 || { cd "$original_dir"; return 1; }
-  cd KernelSU-Next || { cd "$original_dir"; return 1; }
-  echo ">>> [4/9] Downloading SUSFS patch v1.5.3"
-  curl -fLo 0001-Kernel-Implement-SUSFS-v1.5.3.patch "https://github.com/sidex15/KernelSU-Next/commit/1e750de25930e875612bbec0410de0088474c00b.patch" || { cd "$original_dir"; return 1; }
-  [[ -s 0001-Kernel-Implement-SUSFS-v1.5.3.patch ]] || { cd "$original_dir"; return 1; }
-  patch -p1 < 0001-Kernel-Implement-SUSFS-v1.5.3.patch || { cd "$original_dir"; return 1; }
-  cd .. || { cd "$original_dir"; return 1; }
-  echo ">>> [7/9] Cloning SUSFS for kernel 4.19"
-  rm -rf susfs4ksu
-  git clone -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git || { cd "$original_dir"; return 1; }
-  cp -v susfs4ksu/kernel_patches/fs/* fs/ || { cd "$original_dir"; return 1; }
-  cp -v susfs4ksu/kernel_patches/include/linux/* include/linux/ || { cd "$original_dir"; return 1; }
-  cp -v susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch . || { cd "$original_dir"; return 1; }
-  patch -p1 < 50_add_susfs_in_kernel-4.19.patch || { cd "$original_dir"; return 1; }
-  rm -rf susfs4ksu
-  cd "$original_dir" || return 1
-  echo -e "${GREEN}[SUCCESS] KernelSU-Next + SUSFS setup completed.${RESET}"
-}
-
-execute_grapheneos() {
-  local repo="$1" branch="$2"
-  if ! command -v repo >/dev/null 2>&1; then
-    echo -e "${RED}[ERROR] 'repo' command is required for GrapheneOS.${RESET}"
-    return 1
-  fi
-  if [[ "$DRY_RUN" == "yes" ]]; then
-    echo "DRY-RUN: repo init -u '$repo' -b '$branch'"
-    echo "DRY-RUN: repo sync -j8"
-    return 0
-  fi
-  repo init -u "$repo" -b "$branch" || return 1
-  repo sync -j8 || return 1
-  echo -e "${GREEN}[SUCCESS] GrapheneOS source synchronized.${RESET}"
-  echo -e "${CYAN}Use GrapheneOS adevtool to generate vendor files for the selected Pixel.${RESET}"
-}
-
-execute_cloning() {
-  local successful=() skipped=() failed=() path repo branch source rc
-  local -a paths=() sorted=()
-  for path in "${!SELECTED_REPOS[@]}"; do paths+=("$path"); done
-  mapfile -t sorted < <(printf '%s\n' "${paths[@]}" | sort)
-  for path in "${sorted[@]}"; do
-    repo="${SELECTED_REPOS[$path]}"; branch="${SELECTED_BRANCHES[$path]}"; source="${SELECTED_SOURCES[$path]}"
-    if [[ "$source" == "grapheneos" ]]; then
-      execute_grapheneos "$repo" "$branch"; rc=$?
-    else
-      clone_repo "$repo" "$path" "$branch"; rc=$?
-    fi
-    case "$rc" in
-      0) successful+=("$path") ;;
-      2) skipped+=("$path") ;;
-      3) echo -e "${RED}[CANCELLED] Clone process stopped by user.${RESET}"; return 1 ;;
-      *) failed+=("$path") ;;
-    esac
-    echo
-  done
-  if [[ "$DRY_RUN" == "no" && "$KERNELSU_OPTION" == "yes" && "$SELECTED_DEVICE" == "Bramble (Pixel 4a 5G)" ]]; then
-    setup_kernelsu_susfs_redbull || echo -e "${RED}[ERROR] KernelSU/SUSFS setup failed.${RESET}"
-  fi
-  echo -e "\n${BOLD}=== EXECUTION SUMMARY ===${RESET}"
-  echo "Total: ${#SELECTED_REPOS[@]}"
-  echo -e "${GREEN}Cloned/Planned: ${#successful[@]}${RESET}"
-  echo -e "${YELLOW}Skipped: ${#skipped[@]}${RESET}"
-  echo -e "${RED}Failed: ${#failed[@]}${RESET}"
-  if (( ${#failed[@]} == 0 )); then echo -e "${GREEN}[SUCCESS] Process completed successfully!${RESET}"; elif (( ${#successful[@]} > 0 )); then echo -e "${YELLOW}[PARTIAL SUCCESS] Process completed with some issues.${RESET}"; else echo -e "${RED}[FAILURE] Process failed.${RESET}"; fi
-}
-
-reset_selection() {
-  SELECTED_REPOS=()
-  SELECTED_BRANCHES=()
-  SELECTED_SOURCES=()
-  SELECTED_DEVICE=""
-  KERNELSU_OPTION=""
-  DRY_RUN="no"
+  ((failed==0)) && echo -e "${C_GREEN}[SUCCESS] Clone process completed.${C_RESET}" || echo -e "${C_YELLOW}[PARTIAL] Some components failed.${C_RESET}"
 }
 
 main() {
-  while true; do
-    select_menu "Select device to configure:" \
-      "Bramble (Pixel 4a 5G)" \
-      "Coral (Pixel 4 XL)" \
-      "Flame (Pixel 4)" \
-      "Sunfish (Pixel 4a)" \
-      "Redfin (Pixel 5)" \
-      "Oriole (Pixel 6)" \
-      "Raven (Pixel 6 Pro)"
-    local device_choice=$?
-    case "$device_choice" in
+  echo -e "${C_BOLD}=== Bias8145 Android Source Cloner ===${C_RESET}"
+  while :; do
+    menu "Select device" \
+      "Bramble (Pixel 4a 5G)" "Coral (Pixel 4 XL)" "Flame (Pixel 4)" \
+      "Sunfish (Pixel 4a)" "Redfin (Pixel 5)" "Oriole (Pixel 6)" "Raven (Pixel 6 Pro)"
+    case "$?" in
       254) exit 0 ;;
-      0) configure_bramble ;;
-      1) configure_coral ;;
-      2) configure_flame ;;
-      3) configure_sunfish ;;
-      4) configure_redfin ;;
-      5) configure_oriole ;;
-      6) configure_raven ;;
-      *) continue ;;
+      0) configure_pixel bramble ;;
+      1) configure_pixel coral ;;
+      2) configure_pixel flame ;;
+      3) configure_pixel sunfish ;;
+      4) configure_pixel redfin ;;
+      5) configure_pixel oriole ;;
+      6) configure_pixel raven ;;
     esac
-    local config_rc=$?
-    if (( config_rc == 254 )); then reset_selection; continue; fi
-    if (( config_rc != 0 )); then echo -e "${RED}[ERROR] Configuration failed.${RESET}"; reset_selection; continue; fi
-    validate_all_configuration || { echo -e "${RED}[ERROR] Cannot continue until configuration is fixed.${RESET}"; reset_selection; continue; }
-    show_final_review
-    local review_rc=$?
-    case "$review_rc" in
-      0)
-        final_clone_confirmation
-        local confirm_rc=$?
-        case "$confirm_rc" in
-          0) execute_cloning; return ;;
-          1) reset_selection ;;
-          2) return ;;
-        esac
-        ;;
-      1) reset_selection ;;
-      2) return ;;
-    esac
+    while :; do
+      execute
+      rc=$?
+      [[ "$rc" == 10 ]] && continue
+      [[ "$rc" == 11 ]] && break
+      break
+    done
   done
 }
-
 main
