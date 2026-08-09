@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Android Source Repo Cloner - high flexibility edition
 # Per-tree source + per-tree branch selection. Menu choices never use shell exit codes.
-set -Eeuo pipefail
+# Deliberately do NOT use `set -e`: this script uses non-zero returns for controlled flow.
+set -Euo pipefail
 
 readonly C_RESET='\033[0m' C_BOLD='\033[1m' C_CYAN='\033[0;36m' C_GREEN='\033[0;32m'
 readonly C_RED='\033[0;31m' C_YELLOW='\033[1;33m' C_BLUE='\033[0;34m'
@@ -15,11 +16,10 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo -e "${C_RED}[ERROR] Missi
 need_cmd git
 need_cmd curl
 
-# IMPORTANT: menu() always returns 0. User selections are stored in MENU_CHOICE.
-# This prevents Bash errexit from interpreting a valid menu index (e.g. 6) as an error.
 menu() {
   local title="$1"; shift
-  local -a opts=("$@") n ans
+  local -a opts=("$@") n
+  local ans
   while :; do
     echo -e "\n${C_CYAN}${title}${C_RESET}"
     for n in "${!opts[@]}"; do echo "$((n+1))) ${opts[n]}"; done
@@ -46,13 +46,16 @@ valid_path() { [[ "$1" != /* && "$1" != *..* && "$1" =~ ^[A-Za-z0-9._/-]+$ ]]; }
 list_branches() {
   local url="$1"; local -a out=()
   mapfile -t out < <(git ls-remote --heads "$url" 2>/dev/null | awk '{sub("refs/heads/","",$2); print $2}' | sort -V)
-  ((${#out[@]})) || return 1
+  if ((${#out[@]} == 0)); then return 1; fi
   printf '%s\n' "${out[@]}"
 }
 
 pick_branch() {
   local url="$1" component="$2"; local -a bs=(); local i ans
-  mapfile -t bs < <(list_branches "$url") || { echo -e "${C_RED}[ERROR] Cannot read branches: $url${C_RESET}"; return 1; }
+  if ! mapfile -t bs < <(list_branches "$url"); then
+    echo -e "${C_RED}[ERROR] Cannot read branches: $url${C_RESET}"
+    return 1
+  fi
   echo -e "${C_CYAN}Branches for ${component}:${C_RESET}"
   for i in "${!bs[@]}"; do echo "$((i+1))) ${bs[i]}"; done
   echo "m) Manual branch/tag/ref"
@@ -60,8 +63,16 @@ pick_branch() {
   while :; do
     read -r -p "> " ans
     case "$ans" in
-      [0-9]*) if ((ans>=1 && ans<=${#bs[@]})); then SELECTED_BRANCH="${bs[ans-1]}"; return 0; fi ;;
-      m|M) read -r -p "Branch/tag/ref: " SELECTED_BRANCH; [[ -n "$SELECTED_BRANCH" ]] && return 0 ;;
+      [0-9]*)
+        if ((ans>=1 && ans<=${#bs[@]})); then
+          SELECTED_BRANCH="${bs[ans-1]}"
+          return 0
+        fi
+        ;;
+      m|M)
+        read -r -p "Branch/tag/ref: " SELECTED_BRANCH
+        [[ -n "$SELECTED_BRANCH" ]] && return 0
+        ;;
       b|B) return 254 ;;
     esac
     echo -e "${C_RED}Invalid branch.${C_RESET}"
@@ -101,14 +112,14 @@ source_repo() {
       echo -e "${C_YELLOW}[WARN] Repository unavailable: $repo${C_RESET}"
       continue
     fi
-    pick_branch "$repo" "$component" || continue
+    if ! pick_branch "$repo" "$component"; then continue; fi
     echo -e "${C_GREEN}Selected:${C_RESET} $source | $repo | $SELECTED_BRANCH"
     menu "Confirm ${path}" "Confirm" "Choose another source" "Choose another branch"
     choice="$MENU_CHOICE"
     case "$choice" in
       0) REPO["$path"]="$repo"; BRANCH["$path"]="$SELECTED_BRANCH"; SOURCE["$path"]="$source"; return 0 ;;
       1) continue ;;
-      2) pick_branch "$repo" "$component" || continue ;;
+      2) if ! pick_branch "$repo" "$component"; then continue; fi ;;
       254) return 254 ;;
     esac
   done
@@ -116,7 +127,10 @@ source_repo() {
 
 add_component() {
   local path="$1"
-  valid_path "$path" || { echo -e "${C_RED}[ERROR] Invalid target path: $path${C_RESET}"; return 1; }
+  if ! valid_path "$path"; then
+    echo -e "${C_RED}[ERROR] Invalid target path: $path${C_RESET}"
+    return 1
+  fi
   source_repo "$path"
 }
 
@@ -137,7 +151,8 @@ clone_one() {
     current_url="$(git -C "$path" remote get-url origin 2>/dev/null || true)"
     current_branch="$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null || true)"
     if [[ "$(normalize_url "$current_url")" == "$(normalize_url "$url")" && "$current_branch" == "$branch" ]]; then
-      echo -e "${C_YELLOW}[SKIP] Already matches.${C_RESET}"; return 2
+      echo -e "${C_YELLOW}[SKIP] Already matches.${C_RESET}"
+      return 2
     fi
     echo -e "${C_YELLOW}[EXISTS] $path${C_RESET}"
     menu "Existing repository" "Keep existing" "Remove and clone selected" "Cancel"
@@ -147,7 +162,8 @@ clone_one() {
       2|254) return 3 ;;
     esac
   elif [[ -e "$path" ]]; then
-    echo -e "${C_RED}[ERROR] Target exists and is not a Git repository: $path${C_RESET}"; return 1
+    echo -e "${C_RED}[ERROR] Target exists and is not a Git repository: $path${C_RESET}"
+    return 1
   fi
   mkdir -p "$(dirname "$path")"
   git clone --depth=1 --branch "$branch" --single-branch "$url" "$path"
@@ -182,7 +198,12 @@ configure_pixel() {
   echo "Mix LineageOS, GrapheneOS, Bias8145, TheMuppets and manual repositories as desired."
   echo "Each component has its own repository and branch selection."
   local p
-  for p in "${defaults[@]}"; do add_component "$p" || return $?; done
+  for p in "${defaults[@]}"; do
+    add_component "$p"
+    local rc=$?
+    if ((rc==254)); then return 254; fi
+    if ((rc!=0)); then return "$rc"; fi
+  done
   while :; do
     show_config
     menu "Component editor" \
@@ -193,7 +214,7 @@ configure_pixel() {
       "Continue"
     case "$MENU_CHOICE" in
       0) read -r -p "Target path: " p; add_component "$p" || true ;;
-      1) read -r -p "Target path: " p; [[ -n "${REPO[$p]+x}" ]] && add_component "$p" || echo "Unknown component." ;;
+      1) read -r -p "Target path: " p; [[ -n "${REPO[$p]+x}" ]] && { add_component "$p" || true; } || echo "Unknown component." ;;
       2) read -r -p "Target path to remove: " p; unset 'REPO[$p]' 'BRANCH[$p]' 'SOURCE[$p]' ;;
       3) echo -e "${C_CYAN}Dependency candidates:${C_RESET}"; for p in "${!REPO[@]}"; do discover_dependencies "$p" || true; done ;;
       4) break ;;
@@ -213,7 +234,8 @@ execute() {
     3|254) return 11 ;;
   esac
   for p in $(printf '%s\n' "${!REPO[@]}" | sort); do
-    clone_one "$p"; rc=$?
+    clone_one "$p"
+    rc=$?
     case "$rc" in 0|2) ;; 3) return 11 ;; *) failed=1 ;; esac
   done
   if ((failed==0)); then
@@ -221,6 +243,7 @@ execute() {
   else
     echo -e "${C_YELLOW}[PARTIAL] Some components failed.${C_RESET}"
   fi
+  return 0
 }
 
 main() {
@@ -238,6 +261,11 @@ main() {
       4) configure_pixel redfin ;;
       5) configure_pixel oriole ;;
       6) configure_pixel raven ;;
+    esac
+    rc=$?
+    case "$rc" in
+      0|254) ;;
+      *) echo -e "${C_YELLOW}[WARN] Configuration returned $rc.${C_RESET}" ;;
     esac
     while :; do
       execute
