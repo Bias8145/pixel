@@ -2,7 +2,7 @@
 # Android Source Repo Cloner - high flexibility edition
 # Per-tree source + per-tree branch selection. Nothing is globally locked to LOS/GrapheneOS.
 # Sources: LineageOS, GrapheneOS, Bias8145, TheMuppets, or any manual repository.
-set -Eeuo pipefail
+set -Euo pipefail
 
 readonly C_RESET='\033[0m' C_BOLD='\033[1m' C_CYAN='\033[0;36m' C_GREEN='\033[0;32m'
 readonly C_RED='\033[0;31m' C_YELLOW='\033[1;33m' C_BLUE='\033[0;34m' C_MAGENTA='\033[0;35m'
@@ -13,6 +13,7 @@ DRY_RUN=0
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo -e "${C_RED}[ERROR] Missing: $1${C_RESET}"; exit 1; }; }
 need_cmd git
+need_cmd curl
 
 menu() {
   local title="$1"; shift
@@ -24,7 +25,7 @@ menu() {
     echo "q) Quit"
     read -r -p "> " ans
     case "$ans" in
-      [0-9]*) ((ans>=1 && ans<=${#opts[@]})) && return $((ans-1)) ;;
+      [0-9]*) if ((ans>=1 && ans<=${#opts[@]})); then return $((ans-1)); fi ;;
       b|B) return 254 ;;
       q|Q) exit 0 ;;
     esac
@@ -205,7 +206,11 @@ execute() {
     clone_one "$p"; rc=$?
     case "$rc" in 0|2) ;; 3) return 11 ;; *) failed=1 ;; esac
   done
-  ((failed==0)) && echo -e "${C_GREEN}[SUCCESS] Clone process completed.${C_RESET}" || echo -e "${C_YELLOW}[PARTIAL] Some components failed.${C_RESET}"
+  if ((failed==0)); then
+    echo -e "${C_GREEN}[SUCCESS] Clone process completed.${C_RESET}"
+  else
+    echo -e "${C_YELLOW}[PARTIAL] Some components failed.${C_RESET}"
+  fi
 }
 
 main() {
