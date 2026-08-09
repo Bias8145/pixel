@@ -2,8 +2,6 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 show_header() {
     echo
     echo "=============================================="
@@ -82,10 +80,14 @@ a16_qpr2_keygen() {
     local default_path="vendor/lineage-priv/keys"
     local key_path
     local scripts_dir="tmp_scripts"
+    local keys_mk
 
     echo
     echo "Android 16 QPR2+ signing-key flow"
-    echo "LineageOS scripts template will be used."
+    echo "LineageOS scripts/lineage-priv-template will be used."
+    echo
+    echo "The key directory is ROM-specific and can be named freely."
+    echo "Examples: vendor/lineage-priv/keys, vendor/myrom-priv/keys, vendor/romname-keys"
     echo
     read -r -p "Key directory [$default_path]: " key_path
     key_path="${key_path:-$default_path}"
@@ -119,20 +121,45 @@ a16_qpr2_keygen() {
     cp -r "$scripts_dir/lineage-priv-template/"* "$key_path/"
     rm -rf -- "$scripts_dir"
 
-    # Android 16 QPR2+ template defaults to testkey. Switch it to releasekey
-    # before running keys.sh, as required for release signing.
-    local keys_mk="$key_path/keys.mk"
+    keys_mk="$key_path/keys.mk"
     if [ ! -f "$keys_mk" ]; then
         echo "[ERROR] Missing $keys_mk"
         return 1
     fi
 
-    sed -i 's#PRODUCT_DEFAULT_DEV_CERTIFICATE := vendor/lineage-priv/keys/testkey#PRODUCT_DEFAULT_DEV_CERTIFICATE := PLACEHOLDER#' "$keys_mk"
-    sed -i "s#PRODUCT_DEFAULT_DEV_CERTIFICATE := PLACEHOLDER#PRODUCT_DEFAULT_DEV_CERTIFICATE := $key_path/releasekey#" "$keys_mk"
-
     echo
-    echo "Updated keys.mk:"
-    grep -n 'PRODUCT_DEFAULT_DEV_CERTIFICATE' "$keys_mk" || true
+    echo "=============================================="
+    echo " MANUAL keys.mk CONFIGURATION REQUIRED"
+    echo "=============================================="
+    echo "Open: $keys_mk"
+    echo
+    echo "1. At the top/appropriate ROM-specific entries,"
+    echo "   change vendor/lineage-priv to whatever path"
+    echo "   and ROM-specific namespace your ROM requires."
+    echo "   Example: vendor/myrom-priv/keys"
+    echo
+    echo "2. Do NOT leave the default testkey certificate."
+    echo "3. PRODUCT_DEFAULT_DEV_CERTIFICATE at the bottom"
+    echo "   MUST point to the releasekey, using your chosen path."
+    echo "   Example: PRODUCT_DEFAULT_DEV_CERTIFICATE := vendor/myrom-priv/keys/releasekey"
+    echo
+    echo "The script will NOT guess your ROM's namespace."
+    echo "After editing keys.mk, return here and continue."
+    echo
+    read -r -p "Press ENTER after you have manually edited keys.mk..."
+
+    if ! grep -Eq '^[[:space:]]*PRODUCT_DEFAULT_DEV_CERTIFICATE[[:space:]]*:=[[:space:]].*/releasekey[[:space:]]*$' "$keys_mk"; then
+        echo
+        echo "[ERROR] keys.mk does not contain a PRODUCT_DEFAULT_DEV_CERTIFICATE"
+        echo "        pointing to */releasekey."
+        echo "        Android 16 QPR2+ release signing requires releasekey here."
+        return 1
+    fi
+
+    if grep -Eq '^[[:space:]]*PRODUCT_DEFAULT_DEV_CERTIFICATE[[:space:]]*:=[[:space:]].*/testkey([[:space:]]*)$' "$keys_mk"; then
+        echo "[ERROR] keys.mk still points PRODUCT_DEFAULT_DEV_CERTIFICATE to testkey."
+        return 1
+    fi
 
     if [ ! -x "$key_path/keys.sh" ]; then
         chmod +x "$key_path/keys.sh" "$key_path/make_key.sh" 2>/dev/null || true
