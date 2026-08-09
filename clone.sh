@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Bias8145 Android Source Cloner
 # High-flexibility per-tree source/branch selection.
-# Do not use nounset here: associative-array lookups in Bash can expand
-# subscript variables in surprising ways under `set -u`.
+# Interactive associative-array lookups are intentionally run without nounset.
+set +u
 set -Eo pipefail
 
 readonly C_RESET='\033[0m' C_BOLD='\033[1m' C_CYAN='\033[0;36m' C_GREEN='\033[0;32m'
