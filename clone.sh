@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Android Source Repo Cloner - high flexibility edition
-# Per-tree source + per-tree branch selection. Menu choices never use shell exit codes.
-# Deliberately do NOT use `set -e`: this script uses non-zero returns for controlled flow.
+# Bias8145 Android Source Cloner
+# High-flexibility per-tree source/branch selection.
+# Device selection is deliberately handled without using shell return codes.
 set -Euo pipefail
 
 readonly C_RESET='\033[0m' C_BOLD='\033[1m' C_CYAN='\033[0;36m' C_GREEN='\033[0;32m'
@@ -11,6 +11,7 @@ declare -A REPO BRANCH SOURCE
 DEVICE=""
 DRY_RUN=0
 MENU_CHOICE=""
+SELECTED_BRANCH=""
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo -e "${C_RED}[ERROR] Missing: $1${C_RESET}"; exit 1; }; }
 need_cmd git
@@ -18,20 +19,18 @@ need_cmd curl
 
 menu() {
   local title="$1"; shift
-  local -a opts=("$@") n
-  local ans
+  local -a opts=("$@")
+  local i ans
+  MENU_CHOICE=""
   while :; do
     echo -e "\n${C_CYAN}${title}${C_RESET}"
-    for n in "${!opts[@]}"; do echo "$((n+1))) ${opts[n]}"; done
+    for i in "${!opts[@]}"; do echo "$((i+1))) ${opts[i]}"; done
     echo "b) Back"
     echo "q) Quit"
-    read -r -p "> " ans
+    read -r -p "> " ans || { echo; MENU_CHOICE=254; return 0; }
     case "$ans" in
       [0-9]*)
-        if (( ans >= 1 && ans <= ${#opts[@]} )); then
-          MENU_CHOICE=$((ans-1))
-          return 0
-        fi
+        if (( ans >= 1 && ans <= ${#opts[@]} )); then MENU_CHOICE=$((ans-1)); return 0; fi
         ;;
       b|B) MENU_CHOICE=254; return 0 ;;
       q|Q) exit 0 ;;
@@ -61,18 +60,10 @@ pick_branch() {
   echo "m) Manual branch/tag/ref"
   echo "b) Back"
   while :; do
-    read -r -p "> " ans
+    read -r -p "> " ans || return 254
     case "$ans" in
-      [0-9]*)
-        if ((ans>=1 && ans<=${#bs[@]})); then
-          SELECTED_BRANCH="${bs[ans-1]}"
-          return 0
-        fi
-        ;;
-      m|M)
-        read -r -p "Branch/tag/ref: " SELECTED_BRANCH
-        [[ -n "$SELECTED_BRANCH" ]] && return 0
-        ;;
+      [0-9]*) if ((ans>=1 && ans<=${#bs[@]})); then SELECTED_BRANCH="${bs[ans-1]}"; return 0; fi ;;
+      m|M) read -r -p "Branch/tag/ref: " SELECTED_BRANCH || return 254; [[ -n "$SELECTED_BRANCH" ]] && return 0 ;;
       b|B) return 254 ;;
     esac
     echo -e "${C_RED}Invalid branch.${C_RESET}"
@@ -104,7 +95,7 @@ source_repo() {
       1) repo="$(repo_name_for GrapheneOS "$path")"; source="GrapheneOS" ;;
       2) repo="$(repo_name_for Bias8145 "$path")"; source="Bias8145" ;;
       3) repo="$(repo_name_for TheMuppets "$path")"; source="TheMuppets" ;;
-      4) read -r -p "Repository URL: " repo; source="Custom" ;;
+      4) read -r -p "Repository URL: " repo || return 254; source="Custom" ;;
       *) continue ;;
     esac
     [[ -n "$repo" ]] || continue
@@ -127,10 +118,7 @@ source_repo() {
 
 add_component() {
   local path="$1"
-  if ! valid_path "$path"; then
-    echo -e "${C_RED}[ERROR] Invalid target path: $path${C_RESET}"
-    return 1
-  fi
+  if ! valid_path "$path"; then echo -e "${C_RED}[ERROR] Invalid target path: $path${C_RESET}"; return 1; fi
   source_repo "$path"
 }
 
@@ -150,21 +138,11 @@ clone_one() {
   if [[ -d "$path/.git" ]]; then
     current_url="$(git -C "$path" remote get-url origin 2>/dev/null || true)"
     current_branch="$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null || true)"
-    if [[ "$(normalize_url "$current_url")" == "$(normalize_url "$url")" && "$current_branch" == "$branch" ]]; then
-      echo -e "${C_YELLOW}[SKIP] Already matches.${C_RESET}"
-      return 2
-    fi
+    if [[ "$(normalize_url "$current_url")" == "$(normalize_url "$url")" && "$current_branch" == "$branch" ]]; then echo -e "${C_YELLOW}[SKIP] Already matches.${C_RESET}"; return 2; fi
     echo -e "${C_YELLOW}[EXISTS] $path${C_RESET}"
     menu "Existing repository" "Keep existing" "Remove and clone selected" "Cancel"
-    case "$MENU_CHOICE" in
-      0) return 2 ;;
-      1) rm -rf -- "$path" ;;
-      2|254) return 3 ;;
-    esac
-  elif [[ -e "$path" ]]; then
-    echo -e "${C_RED}[ERROR] Target exists and is not a Git repository: $path${C_RESET}"
-    return 1
-  fi
+    case "$MENU_CHOICE" in 0) return 2 ;; 1) rm -rf -- "$path" ;; 2|254) return 3 ;; esac
+  elif [[ -e "$path" ]]; then echo -e "${C_RED}[ERROR] Target exists and is not a Git repository: $path${C_RESET}"; return 1; fi
   mkdir -p "$(dirname "$path")"
   git clone --depth=1 --branch "$branch" --single-branch "$url" "$path"
 }
@@ -173,16 +151,13 @@ show_config() {
   local p
   echo -e "\n${C_BOLD}========== FINAL CONFIGURATION ==========${C_RESET}"
   echo "Device: $DEVICE"
-  for p in "${!REPO[@]}"; do
-    printf '  %-42s %-12s %s [%s]\n' "$p" "${SOURCE[$p]}" "${BRANCH[$p]}" "${REPO[$p]}"
-  done | sort
+  for p in "${!REPO[@]}"; do printf '  %-42s %-12s %s [%s]\n' "$p" "${SOURCE[$p]}" "${BRANCH[$p]}" "${REPO[$p]}"; done | sort
   echo -e "${C_BOLD}==========================================${C_RESET}"
 }
 
 configure_pixel() {
-  local codename="$1"
-  DEVICE="$codename"
-  REPO=(); BRANCH=(); SOURCE=()
+  local codename="$1" p rc
+  DEVICE="$codename"; REPO=(); BRANCH=(); SOURCE=()
   local -a defaults=()
   case "$codename" in
     bramble) defaults=("device/google/bramble" "device/google/redbull" "device/google/gs-common" "vendor/google/bramble" "kernel/google/redbull") ;;
@@ -197,27 +172,19 @@ configure_pixel() {
   echo -e "\n${C_BOLD}${C_CYAN}Every component is independent.${C_RESET}"
   echo "Mix LineageOS, GrapheneOS, Bias8145, TheMuppets and manual repositories as desired."
   echo "Each component has its own repository and branch selection."
-  local p
   for p in "${defaults[@]}"; do
-    add_component "$p"
-    local rc=$?
-    if ((rc==254)); then return 254; fi
-    if ((rc!=0)); then return "$rc"; fi
+    add_component "$p"; rc=$?
+    case "$rc" in 0) ;; 254) return 254 ;; *) return "$rc" ;; esac
   done
   while :; do
     show_config
-    menu "Component editor" \
-      "Add another component/path" \
-      "Reconfigure an existing component" \
-      "Remove a component" \
-      "Auto-discover Lineage dependencies" \
-      "Continue"
+    menu "Component editor" "Add another component/path" "Reconfigure an existing component" "Remove a component" "Auto-discover Lineage dependencies" "Continue"
     case "$MENU_CHOICE" in
-      0) read -r -p "Target path: " p; add_component "$p" || true ;;
-      1) read -r -p "Target path: " p; [[ -n "${REPO[$p]+x}" ]] && { add_component "$p" || true; } || echo "Unknown component." ;;
-      2) read -r -p "Target path to remove: " p; unset 'REPO[$p]' 'BRANCH[$p]' 'SOURCE[$p]' ;;
+      0) read -r -p "Target path: " p || return 254; add_component "$p" || true ;;
+      1) read -r -p "Target path: " p || return 254; [[ -n "${REPO[$p]+x}" ]] && { add_component "$p" || true; } || echo "Unknown component." ;;
+      2) read -r -p "Target path to remove: " p || return 254; unset 'REPO[$p]' 'BRANCH[$p]' 'SOURCE[$p]' ;;
       3) echo -e "${C_CYAN}Dependency candidates:${C_RESET}"; for p in "${!REPO[@]}"; do discover_dependencies "$p" || true; done ;;
-      4) break ;;
+      4) return 0 ;;
       254) return 254 ;;
     esac
   done
@@ -228,50 +195,41 @@ execute() {
   show_config
   menu "Execution" "Clone selected repositories" "Dry run" "Edit configuration" "Cancel"
   case "$MENU_CHOICE" in
-    0) DRY_RUN=0 ;;
-    1) DRY_RUN=1 ;;
-    2) return 10 ;;
-    3|254) return 11 ;;
+    0) DRY_RUN=0 ;; 1) DRY_RUN=1 ;; 2) return 10 ;; 3|254) return 11 ;;
   esac
-  for p in $(printf '%s\n' "${!REPO[@]}" | sort); do
-    clone_one "$p"
-    rc=$?
-    case "$rc" in 0|2) ;; 3) return 11 ;; *) failed=1 ;; esac
-  done
-  if ((failed==0)); then
-    echo -e "${C_GREEN}[SUCCESS] Clone process completed.${C_RESET}"
-  else
-    echo -e "${C_YELLOW}[PARTIAL] Some components failed.${C_RESET}"
-  fi
+  for p in $(printf '%s\n' "${!REPO[@]}" | sort); do clone_one "$p"; rc=$?; case "$rc" in 0|2) ;; 3) return 11 ;; *) failed=1 ;; esac; done
+  ((failed==0)) && echo -e "${C_GREEN}[SUCCESS] Clone process completed.${C_RESET}" || echo -e "${C_YELLOW}[PARTIAL] Some components failed.${C_RESET}"
   return 0
 }
 
 main() {
   echo -e "${C_BOLD}=== Bias8145 Android Source Cloner ===${C_RESET}"
   while :; do
-    menu "Select device" \
-      "Bramble (Pixel 4a 5G)" "Coral (Pixel 4 XL)" "Flame (Pixel 4)" \
-      "Sunfish (Pixel 4a)" "Redfin (Pixel 5)" "Oriole (Pixel 6)" "Raven (Pixel 6 Pro)"
-    case "$MENU_CHOICE" in
-      254) exit 0 ;;
-      0) configure_pixel bramble ;;
-      1) configure_pixel coral ;;
-      2) configure_pixel flame ;;
-      3) configure_pixel sunfish ;;
-      4) configure_pixel redfin ;;
-      5) configure_pixel oriole ;;
-      6) configure_pixel raven ;;
+    echo -e "\n${C_CYAN}Select device${C_RESET}"
+    echo "1) Bramble (Pixel 4a 5G)"
+    echo "2) Coral (Pixel 4 XL)"
+    echo "3) Flame (Pixel 4)"
+    echo "4) Sunfish (Pixel 4a)"
+    echo "5) Redfin (Pixel 5)"
+    echo "6) Oriole (Pixel 6)"
+    echo "7) Raven (Pixel 6 Pro)"
+    echo "b) Back"
+    echo "q) Quit"
+    local device_choice
+    read -r -p "> " device_choice || exit 0
+    case "$device_choice" in
+      1) configure_pixel bramble ;; 2) configure_pixel coral ;; 3) configure_pixel flame ;;
+      4) configure_pixel sunfish ;; 5) configure_pixel redfin ;; 6) configure_pixel oriole ;;
+      7) configure_pixel raven ;; b|B|q|Q) exit 0 ;;
+      *) echo -e "${C_RED}Invalid choice.${C_RESET}"; continue ;;
     esac
     rc=$?
-    case "$rc" in
-      0|254) ;;
-      *) echo -e "${C_YELLOW}[WARN] Configuration returned $rc.${C_RESET}" ;;
-    esac
+    if ((rc!=0 && rc!=254)); then echo -e "${C_YELLOW}[WARN] Configuration returned $rc.${C_RESET}"; fi
+    if ((rc==254)); then continue; fi
     while :; do
-      execute
-      rc=$?
-      [[ "$rc" == 10 ]] && continue
-      [[ "$rc" == 11 ]] && break
+      execute; rc=$?
+      ((rc==10)) && continue
+      ((rc==11)) && break
       break
     done
   done
