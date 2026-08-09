@@ -55,7 +55,6 @@ pick_branch() {
   done
 }
 
-# Explicit GrapheneOS mappings. Do not derive these names from target paths.
 graphene_repo_for() {
   case "$1" in
     device/google/raviole) echo "https://github.com/GrapheneOS/device_google_raviole.git";;
@@ -101,37 +100,52 @@ source_repo() {
   done
 }
 
-add_component() { local path="$1"; valid_path "$path" || { echo -e "${C_RED}[ERROR] Invalid target path: $path${C_RESET}"; return 1; }; source_repo "$path"; }
+add_component() {
+  local path="$1"
+  valid_path "$path" || { echo -e "${C_RED}[ERROR] Invalid target path: $path${C_RESET}"; return 1; }
+  source_repo "$path"
+}
 
 discover_dependencies() {
-  local path="$1" url="${REPO[$path]}" branch="${BRANCH[$path]}" raw tmp repo_path
-  repo_path="${url#https://github.com/}"; repo_path="${repo_path%.git}"
+  local path="$1"
+  local url="${REPO[$path]-}" branch="${BRANCH[$path]-}" raw tmp repo_path
+  [[ -n "$url" && -n "$branch" ]] || return 0
+  repo_path="${url#https://github.com/}"
+  repo_path="${repo_path%.git}"
   raw="https://raw.githubusercontent.com/${repo_path}/${branch}/lineage.dependencies"
-  tmp="$(curl -fsSL "$raw" 2>/dev/null || true)"; [[ -n "$tmp" ]] || return 0
+  tmp="$(curl -fsSL "$raw" 2>/dev/null || true)"
+  [[ -n "$tmp" ]] || return 0
   echo "$tmp" | sed -n 's/.*"repository":[[:space:]]*"\([^"]*\)".*"target_path":[[:space:]]*"\([^"]*\)".*/\1|\2/p'
 }
 
 clone_one() {
-  local path="$1" url="${REPO[$path]}" branch="${BRANCH[$path]}" current_url current_branch
+  local path="$1"
+  local url="${REPO[$path]-}" branch="${BRANCH[$path]-}" current_url current_branch
+  [[ -n "$path" && -n "$url" && -n "$branch" ]] || { echo -e "${C_RED}[ERROR] Invalid clone entry.${C_RESET}"; return 1; }
   echo -e "${C_BLUE}[CLONE]${C_RESET} $url [$branch] -> $path"
   if ((DRY_RUN)); then echo "       git clone --depth=1 -b '$branch' '$url' '$path'"; return 0; fi
   if [[ -d "$path/.git" ]]; then
-    current_url="$(git -C "$path" remote get-url origin 2>/dev/null || true)"; current_branch="$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null || true)"
+    current_url="$(git -C "$path" remote get-url origin 2>/dev/null || true)"
+    current_branch="$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null || true)"
     if [[ "$(normalize_url "$current_url")" == "$(normalize_url "$url")" && "$current_branch" == "$branch" ]]; then echo -e "${C_YELLOW}[SKIP] Already matches.${C_RESET}"; return 2; fi
     menu "Existing repository" "Keep existing" "Remove and clone selected" "Cancel"
     case "$MENU_CHOICE" in 0) return 2;; 1) rm -rf -- "$path";; 2|254) return 3;; esac
   elif [[ -e "$path" ]]; then echo -e "${C_RED}[ERROR] Target exists and is not a Git repository: $path${C_RESET}"; return 1; fi
-  mkdir -p "$(dirname "$path")"; git clone --depth=1 --branch "$branch" --single-branch "$url" "$path"
+  mkdir -p "$(dirname "$path")"
+  git clone --depth=1 --branch "$branch" --single-branch "$url" "$path"
 }
 
 show_config() {
-  local p; echo -e "\n${C_BOLD}========== FINAL CONFIGURATION ==========${C_RESET}"; echo "Device: $DEVICE"
+  local p
+  echo -e "\n${C_BOLD}========== FINAL CONFIGURATION ==========${C_RESET}"
+  echo "Device: $DEVICE"
   for p in "${!REPO[@]}"; do printf '  %-42s %-12s %s [%s]\n' "$p" "${SOURCE[$p]}" "${BRANCH[$p]}" "${REPO[$p]}"; done | sort
   echo -e "${C_BOLD}==========================================${C_RESET}"
 }
 
 configure_pixel() {
-  local codename="$1" p rc; DEVICE="$codename"; REPO=(); BRANCH=(); SOURCE=(); local -a defaults=()
+  local codename="$1" p rc
+  DEVICE="$codename"; REPO=(); BRANCH=(); SOURCE=(); local -a defaults=()
   case "$codename" in
     bramble) defaults=("device/google/bramble" "device/google/redbull" "device/google/gs-common" "vendor/google/bramble" "kernel/google/redbull");;
     coral) defaults=("device/google/coral" "device/google/gs-common" "vendor/google/coral" "kernel/google/msm-4.14");;
@@ -142,10 +156,13 @@ configure_pixel() {
     raven) defaults=("device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/raviole-kernels" "vendor/google/raven");;
     *) return 1;;
   esac
-  echo -e "\n${C_BOLD}${C_CYAN}Every component is independent.${C_RESET}"; echo "Mix LineageOS, GrapheneOS, Bias8145, TheMuppets and manual repositories as desired."; echo "Each component has its own repository and branch selection."
+  echo -e "\n${C_BOLD}${C_CYAN}Every component is independent.${C_RESET}"
+  echo "Mix LineageOS, GrapheneOS, Bias8145, TheMuppets and manual repositories as desired."
+  echo "Each component has its own repository and branch selection."
   for p in "${defaults[@]}"; do add_component "$p"; rc=$?; case "$rc" in 0) ;; 254) return 254;; *) return "$rc";; esac; done
   while :; do
-    show_config; menu "Component editor" "Add another component/path" "Reconfigure an existing component" "Remove a component" "Auto-discover Lineage dependencies" "Continue"
+    show_config
+    menu "Component editor" "Add another component/path" "Reconfigure an existing component" "Remove a component" "Auto-discover Lineage dependencies" "Continue"
     case "$MENU_CHOICE" in
       0) read -r -p "Target path: " p || return 254; add_component "$p" || true;;
       1) read -r -p "Target path: " p || return 254; [[ -n "${REPO[$p]+x}" ]] && { add_component "$p" || true; } || echo "Unknown component.";;
@@ -157,20 +174,44 @@ configure_pixel() {
 }
 
 execute() {
-  local p rc failed=0; show_config; menu "Execution" "Clone selected repositories" "Dry run" "Edit configuration" "Cancel"
+  local p rc failed=0
+  show_config
+  menu "Execution" "Clone selected repositories" "Dry run" "Edit configuration" "Cancel"
   case "$MENU_CHOICE" in 0) DRY_RUN=0;; 1) DRY_RUN=1;; 2) return 10;; 3|254) return 11;; esac
   for p in $(printf '%s\n' "${!REPO[@]}" | sort); do clone_one "$p"; rc=$?; case "$rc" in 0|2) ;; 3) return 11;; *) failed=1;; esac; done
-  ((failed==0)) && echo -e "${C_GREEN}[SUCCESS] Clone process completed.${C_RESET}" || echo -e "${C_YELLOW}[PARTIAL] Some components failed.${C_RESET}"; return 0
+  ((failed==0)) && echo -e "${C_GREEN}[SUCCESS] Clone process completed.${C_RESET}" || echo -e "${C_YELLOW}[PARTIAL] Some components failed.${C_RESET}"
+  return 0
 }
 
 main() {
   echo -e "${C_BOLD}=== Bias8145 Android Source Cloner ===${C_RESET}"
   while :; do
-    echo -e "\n${C_CYAN}Select device${C_RESET}"; echo "1) Bramble (Pixel 4a 5G)"; echo "2) Coral (Pixel 4 XL)"; echo "3) Flame (Pixel 4)"; echo "4) Sunfish (Pixel 4a)"; echo "5) Redfin (Pixel 5)"; echo "6) Oriole (Pixel 6)"; echo "7) Raven (Pixel 6 Pro)"; echo "b) Back"; echo "q) Quit"
-    local device_choice; read -r -p "> " device_choice || exit 0
-    case "$device_choice" in 1) configure_pixel bramble;; 2) configure_pixel coral;; 3) configure_pixel flame;; 4) configure_pixel sunfish;; 5) configure_pixel redfin;; 6) configure_pixel oriole;; 7) configure_pixel raven;; b|B|q|Q) exit 0;; *) echo -e "${C_RED}Invalid choice.${C_RESET}"; continue;; esac
-    rc=$?; if ((rc!=0 && rc!=254)); then echo -e "${C_YELLOW}[WARN] Configuration returned $rc.${C_RESET}"; fi; if ((rc==254)); then continue; fi
-    while :; do execute; rc=$?; ((rc==10)) && continue; ((rc==11)) && break; break; done
+    echo -e "\n${C_CYAN}Select device${C_RESET}"
+    echo "1) Bramble (Pixel 4a 5G)"
+    echo "2) Coral (Pixel 4 XL)"
+    echo "3) Flame (Pixel 4)"
+    echo "4) Sunfish (Pixel 4a)"
+    echo "5) Redfin (Pixel 5)"
+    echo "6) Oriole (Pixel 6)"
+    echo "7) Raven (Pixel 6 Pro)"
+    echo "b) Back"
+    echo "q) Quit"
+    local device_choice
+    read -r -p "> " device_choice || exit 0
+    case "$device_choice" in
+      1) configure_pixel bramble;; 2) configure_pixel coral;; 3) configure_pixel flame;;
+      4) configure_pixel sunfish;; 5) configure_pixel redfin;; 6) configure_pixel oriole;;
+      7) configure_pixel raven;; b|B|q|Q) exit 0;; *) echo -e "${C_RED}Invalid choice.${C_RESET}"; continue;;
+    esac
+    rc=$?
+    if ((rc!=0 && rc!=254)); then echo -e "${C_YELLOW}[WARN] Configuration returned $rc.${C_RESET}"; fi
+    if ((rc==254)); then continue; fi
+    while :; do
+      execute; rc=$?
+      ((rc==10)) && continue
+      ((rc==11)) && break
+      break
+    done
   done
 }
 main
