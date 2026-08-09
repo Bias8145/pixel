@@ -12,7 +12,7 @@ DEVICE=""
 DRY_RUN=0
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo -e "${C_RED}[ERROR] Missing: $1${C_RESET}"; exit 1; }; }
-for x in git curl; do need_cmd "$x"; done
+need_cmd git
 
 menu() {
   local title="$1"; shift
