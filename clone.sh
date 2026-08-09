@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 # Android Source Repo Cloner - high flexibility edition
-# Per-tree source + per-tree branch selection. Nothing is globally locked to LOS/GrapheneOS.
-# Sources: LineageOS, GrapheneOS, Bias8145, TheMuppets, or any manual repository.
-set -Euo pipefail
+# Per-tree source + per-tree branch selection. Menu choices never use shell exit codes.
+set -Eeuo pipefail
 
 readonly C_RESET='\033[0m' C_BOLD='\033[1m' C_CYAN='\033[0;36m' C_GREEN='\033[0;32m'
-readonly C_RED='\033[0;31m' C_YELLOW='\033[1;33m' C_BLUE='\033[0;34m' C_MAGENTA='\033[0;35m'
+readonly C_RED='\033[0;31m' C_YELLOW='\033[1;33m' C_BLUE='\033[0;34m'
 
 declare -A REPO BRANCH SOURCE
 DEVICE=""
 DRY_RUN=0
+MENU_CHOICE=""
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo -e "${C_RED}[ERROR] Missing: $1${C_RESET}"; exit 1; }; }
 need_cmd git
 need_cmd curl
 
+# IMPORTANT: menu() always returns 0. User selections are stored in MENU_CHOICE.
+# This prevents Bash errexit from interpreting a valid menu index (e.g. 6) as an error.
 menu() {
   local title="$1"; shift
-  local -a opts=("$@") n
+  local -a opts=("$@") n ans
   while :; do
     echo -e "\n${C_CYAN}${title}${C_RESET}"
     for n in "${!opts[@]}"; do echo "$((n+1))) ${opts[n]}"; done
@@ -25,8 +27,13 @@ menu() {
     echo "q) Quit"
     read -r -p "> " ans
     case "$ans" in
-      [0-9]*) if ((ans>=1 && ans<=${#opts[@]})); then return $((ans-1)); fi ;;
-      b|B) return 254 ;;
+      [0-9]*)
+        if (( ans >= 1 && ans <= ${#opts[@]} )); then
+          MENU_CHOICE=$((ans-1))
+          return 0
+        fi
+        ;;
+      b|B) MENU_CHOICE=254; return 0 ;;
       q|Q) exit 0 ;;
     esac
     echo -e "${C_RED}Invalid choice.${C_RESET}"
@@ -44,7 +51,7 @@ list_branches() {
 }
 
 pick_branch() {
-  local url="$1" component="$2"; local -a bs=(); local i
+  local url="$1" component="$2"; local -a bs=(); local i ans
   mapfile -t bs < <(list_branches "$url") || { echo -e "${C_RED}[ERROR] Cannot read branches: $url${C_RESET}"; return 1; }
   echo -e "${C_CYAN}Branches for ${component}:${C_RESET}"
   for i in "${!bs[@]}"; do echo "$((i+1))) ${bs[i]}"; done
@@ -79,7 +86,7 @@ source_repo() {
       "Bias8145/custom source" \
       "TheMuppets vendor source" \
       "Manual repository URL"
-    choice=$?
+    choice="$MENU_CHOICE"
     case "$choice" in
       254) return 254 ;;
       0) repo="$(repo_name_for LineageOS "$path")"; source="LineageOS" ;;
@@ -97,10 +104,12 @@ source_repo() {
     pick_branch "$repo" "$component" || continue
     echo -e "${C_GREEN}Selected:${C_RESET} $source | $repo | $SELECTED_BRANCH"
     menu "Confirm ${path}" "Confirm" "Choose another source" "Choose another branch"
-    case "$?" in
+    choice="$MENU_CHOICE"
+    case "$choice" in
       0) REPO["$path"]="$repo"; BRANCH["$path"]="$SELECTED_BRANCH"; SOURCE["$path"]="$source"; return 0 ;;
       1) continue ;;
       2) pick_branch "$repo" "$component" || continue ;;
+      254) return 254 ;;
     esac
   done
 }
@@ -132,10 +141,10 @@ clone_one() {
     fi
     echo -e "${C_YELLOW}[EXISTS] $path${C_RESET}"
     menu "Existing repository" "Keep existing" "Remove and clone selected" "Cancel"
-    case "$?" in
+    case "$MENU_CHOICE" in
       0) return 2 ;;
       1) rm -rf -- "$path" ;;
-      2) return 3 ;;
+      2|254) return 3 ;;
     esac
   elif [[ -e "$path" ]]; then
     echo -e "${C_RED}[ERROR] Target exists and is not a Git repository: $path${C_RESET}"; return 1
@@ -182,12 +191,13 @@ configure_pixel() {
       "Remove a component" \
       "Auto-discover Lineage dependencies" \
       "Continue"
-    case "$?" in
+    case "$MENU_CHOICE" in
       0) read -r -p "Target path: " p; add_component "$p" || true ;;
       1) read -r -p "Target path: " p; [[ -n "${REPO[$p]+x}" ]] && add_component "$p" || echo "Unknown component." ;;
       2) read -r -p "Target path to remove: " p; unset 'REPO[$p]' 'BRANCH[$p]' 'SOURCE[$p]' ;;
       3) echo -e "${C_CYAN}Dependency candidates:${C_RESET}"; for p in "${!REPO[@]}"; do discover_dependencies "$p" || true; done ;;
       4) break ;;
+      254) return 254 ;;
     esac
   done
 }
@@ -196,11 +206,11 @@ execute() {
   local p rc failed=0
   show_config
   menu "Execution" "Clone selected repositories" "Dry run" "Edit configuration" "Cancel"
-  case "$?" in
+  case "$MENU_CHOICE" in
     0) DRY_RUN=0 ;;
     1) DRY_RUN=1 ;;
     2) return 10 ;;
-    3) return 11 ;;
+    3|254) return 11 ;;
   esac
   for p in $(printf '%s\n' "${!REPO[@]}" | sort); do
     clone_one "$p"; rc=$?
@@ -219,7 +229,7 @@ main() {
     menu "Select device" \
       "Bramble (Pixel 4a 5G)" "Coral (Pixel 4 XL)" "Flame (Pixel 4)" \
       "Sunfish (Pixel 4a)" "Redfin (Pixel 5)" "Oriole (Pixel 6)" "Raven (Pixel 6 Pro)"
-    case "$?" in
+    case "$MENU_CHOICE" in
       254) exit 0 ;;
       0) configure_pixel bramble ;;
       1) configure_pixel coral ;;
