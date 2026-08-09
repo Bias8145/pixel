@@ -70,11 +70,25 @@ pick_branch() {
   done
 }
 
+# Repository names that cannot safely be derived from the target path.
+# Keep these explicit so GrapheneOS Pixel 6 trees never fall back to a
+# non-existent generic repository name.
+graphene_repo_for() {
+  local path="$1"
+  case "$path" in
+    device/google/raviole) echo "https://github.com/GrapheneOS/device_google_raviole.git" ;;
+    device/google/gs101) echo "https://github.com/GrapheneOS/device_google_gs101.git" ;;
+    device/google/gs-common) echo "https://github.com/GrapheneOS/device_google_gs-common.git" ;;
+    device/google/raviole-kernels) echo "https://github.com/GrapheneOS/device_google_raviole-kernels_6.1.git" ;;
+    *) return 1 ;;
+  esac
+}
+
 repo_name_for() {
   local source="$1" path="$2" p="${2//\//_}"
   case "$source" in
     LineageOS|Bias8145) echo "https://github.com/${source}/android_${p}.git" ;;
-    GrapheneOS) echo "https://github.com/GrapheneOS/${p}.git" ;;
+    GrapheneOS) graphene_repo_for "$path" ;;
     TheMuppets) echo "https://github.com/TheMuppets/proprietary_${p}.git" ;;
   esac
 }
@@ -92,7 +106,7 @@ source_repo() {
     case "$choice" in
       254) return 254 ;;
       0) repo="$(repo_name_for LineageOS "$path")"; source="LineageOS" ;;
-      1) repo="$(repo_name_for GrapheneOS "$path")"; source="GrapheneOS" ;;
+      1) repo="$(repo_name_for GrapheneOS "$path")" || { echo -e "${C_YELLOW}[WARN] No explicit GrapheneOS mapping for $path. Use Manual repository URL.${C_RESET}"; continue; }; source="GrapheneOS" ;;
       2) repo="$(repo_name_for Bias8145 "$path")"; source="Bias8145" ;;
       3) repo="$(repo_name_for TheMuppets "$path")"; source="TheMuppets" ;;
       4) read -r -p "Repository URL: " repo || return 254; source="Custom" ;;
