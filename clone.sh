@@ -63,7 +63,8 @@ graphene_repo_for() {
     device/google/raviole) echo "https://github.com/GrapheneOS/device_google_raviole.git";;
     device/google/gs101) echo "https://github.com/GrapheneOS/device_google_gs101.git";;
     device/google/gs-common) echo "https://github.com/GrapheneOS/device_google_gs-common.git";;
-    device/google/raviole-kernels) echo "https://github.com/GrapheneOS/device_google_raviole-kernels_6.1.git";;
+    device/google/zuma) echo "https://github.com/GrapheneOS/device_google_zuma.git";;
+    device/google/raviole-kernels/6.1) echo "https://github.com/GrapheneOS/device_google_raviole-kernels_6.1.git";;
     *) return 1;;
   esac
 }
@@ -130,8 +131,7 @@ clone_one() {
     menu "Existing repository" "Keep existing" "Remove and clone selected" "Cancel"
     case "$MENU_CHOICE" in 0) return 2;; 1) rm -rf -- "$path";; 2|254) return 3;; esac
   elif [[ -e "$path" ]]; then echo -e "${C_RED}[ERROR] Target exists and is not a Git repository: $path${C_RESET}"; return 1; fi
-  mkdir -p "$(dirname "$path")"
-  git clone --depth=1 --branch "$branch" --single-branch "$url" "$path"
+  mkdir -p "$(dirname "$path")"; git clone --depth=1 --branch "$branch" --single-branch "$url" "$path"
 }
 
 show_config() {
@@ -148,8 +148,8 @@ configure_pixel() {
     flame) defaults=("device/google/coral" "device/google/gs-common" "vendor/google/flame" "kernel/google/msm-4.14");;
     sunfish) defaults=("device/google/sunfish" "device/google/gs-common" "vendor/google/sunfish" "kernel/google/msm-4.14");;
     redfin) defaults=("device/google/redfin" "device/google/redbull" "device/google/gs-common" "vendor/google/redfin" "kernel/google/redbull");;
-    oriole) defaults=("device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/raviole-kernels" "vendor/google/oriole");;
-    raven) defaults=("device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/raviole-kernels" "vendor/google/raven");;
+    oriole) defaults=("device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/zuma" "device/google/raviole-kernels/6.1" "vendor/google/oriole");;
+    raven) defaults=("device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/zuma" "device/google/raviole-kernels/6.1" "vendor/google/raven");;
     *) return 1;;
   esac
   echo -e "\n${C_BOLD}${C_CYAN}Every component is independent.${C_RESET}"; echo "Mix LineageOS, GrapheneOS, Bias8145, TheMuppets and manual repositories as desired."; echo "Each component has its own repository and branch selection."
