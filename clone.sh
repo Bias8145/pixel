@@ -165,8 +165,8 @@ configure_pixel() {
     flame) defaults=("device/google/coral" "device/google/gs-common" "vendor/google/flame" "kernel/google/msm-4.14") ;;
     sunfish) defaults=("device/google/sunfish" "device/google/gs-common" "vendor/google/sunfish" "kernel/google/msm-4.14") ;;
     redfin) defaults=("device/google/redfin" "device/google/redbull" "device/google/gs-common" "vendor/google/redfin" "kernel/google/redbull") ;;
-    oriole) defaults=("device/google/oriole" "device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/raviole-kernels" "vendor/google/oriole") ;;
-    raven) defaults=("device/google/raven" "device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/raviole-kernels" "vendor/google/raven") ;;
+    oriole) defaults=("device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/raviole-kernels" "vendor/google/oriole") ;;
+    raven) defaults=("device/google/raviole" "device/google/gs101" "device/google/gs-common" "device/google/raviole-kernels" "vendor/google/raven") ;;
     *) return 1 ;;
   esac
   echo -e "\n${C_BOLD}${C_CYAN}Every component is independent.${C_RESET}"
