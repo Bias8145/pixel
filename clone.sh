@@ -585,6 +585,9 @@ execute_cloning() {
     esac
     echo
   done
+  if [[ "$DRY_RUN" == "no" && "$KERNELSU_OPTION" == "yes" && "$SELECTED_DEVICE" == "Bramble (Pixel 4a 5G)" ]]; then
+    setup_kernelsu_susfs_redbull || echo -e "${RED}[ERROR] KernelSU/SUSFS setup failed.${RESET}"
+  fi
   echo -e "\n${BOLD}=== EXECUTION SUMMARY ===${RESET}"
   echo "Total: ${#SELECTED_REPOS[@]}"
   echo -e "${GREEN}Cloned/Planned: ${#successful[@]}${RESET}"
