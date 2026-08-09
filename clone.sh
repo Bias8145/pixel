@@ -2,7 +2,8 @@
 
 # Android Source Repo Cloner
 # Custom/Official source selection with live repository/branch validation.
-# Official device/kernel sources use LineageOS; official vendor sources use TheMuppets.
+# Official LineageOS device/kernel sources use LineageOS; official vendor sources use TheMuppets.
+# GrapheneOS uses its official platform manifest instead of mixing LineageOS device/vendor trees.
 
 set -o pipefail
 
@@ -176,6 +177,12 @@ validate_target_path() {
 
 validate_component_source() {
   local path="$1" source="$2" repo="$3"
+  if [[ "$source" == "grapheneos" ]]; then
+    [[ "$repo" == https://github.com/GrapheneOS/platform_manifest.git ]] || {
+      echo -e "${RED}[ERROR] GrapheneOS source must use the official platform manifest.${RESET}"; return 1;
+    }
+    return 0
+  fi
   case "$path" in
     vendor/*)
       if [[ "$source" == "official" && "$repo" != *TheMuppets/* ]]; then
@@ -223,24 +230,30 @@ choose_repo_and_branch() {
       esac
     fi
 
-    if [[ "$path" == vendor/* ]]; then
-      source_label="Official / Custom (Official = TheMuppets)"
-      select_menu "Choose source repository for $path:" \
-        "Custom: $custom_repo" \
-        "Official: $official_repo (TheMuppets)"
+    if [[ -n "$custom_repo" ]]; then
+      if [[ "$path" == vendor/* ]]; then
+        source_label="Official / Custom (Official = TheMuppets)"
+        select_menu "Choose source repository for $path:" \
+          "Custom: $custom_repo" \
+          "Official: $official_repo (TheMuppets)"
+      else
+        source_label="Official / Custom (Official = LineageOS)"
+        select_menu "Choose source repository for $path:" \
+          "Custom: $custom_repo" \
+          "Official: $official_repo (LineageOS)"
+      fi
+      repo_choice=$?
+      case "$repo_choice" in
+        254) return 254 ;;
+        0) selected_repo="$custom_repo"; source_key="custom" ;;
+        1) selected_repo="$official_repo"; source_key="official" ;;
+        *) return 1 ;;
+      esac
     else
-      source_label="Official / Custom (Official = LineageOS)"
-      select_menu "Choose source repository for $path:" \
-        "Custom: $custom_repo" \
-        "Official: $official_repo (LineageOS)"
+      source_label="Official / LineageOS"
+      selected_repo="$official_repo"
+      source_key="official"
     fi
-    repo_choice=$?
-    case "$repo_choice" in
-      254) return 254 ;;
-      0) selected_repo="$custom_repo"; source_key="custom" ;;
-      1) selected_repo="$official_repo"; source_key="official" ;;
-      *) return 1 ;;
-    esac
 
     if ! validate_component_source "$path" "$source_key" "$selected_repo"; then continue; fi
     if ! validate_repo "$selected_repo"; then continue; fi
@@ -255,9 +268,6 @@ choose_repo_and_branch() {
     echo -e "Repository: ${BOLD}$selected_repo${RESET}"
     echo -e "Branch    : ${BOLD}$SELECTED_BRANCH${RESET}"
     echo -e "Target    : ${BOLD}$path${RESET}"
-    echo -e "Repo      : ${GREEN}✓ accessible${RESET}"
-    echo -e "Branch    : ${GREEN}✓ exists${RESET}"
-    echo -e "Target    : ${GREEN}✓ valid${RESET}"
     echo "1) Confirm this selection"
     echo "2) Re-select repository"
     echo "3) Re-select branch"
@@ -324,29 +334,70 @@ configure_sunfish() {
     "kernel/google/msm-4.14|https://github.com/Bias8145/android_kernel_google_msm-4.14.git|https://github.com/LineageOS/android_kernel_google_msm-4.14.git"
 }
 
-configure_raviole() {
-  SELECTED_DEVICE="Raviole (Pixel 6/Pro)"
-  local components=(
-    "device/google/raviole|https://github.com/xioyo/android_device_google_raviole.git|https://github.com/LineageOS/android_device_google_raviole.git"
-    "device/google/gs101|https://github.com/xioyo/android_device_google_gs101.git|https://github.com/LineageOS/android_device_google_gs101.git"
-    "device/google/gs-common|https://github.com/LineageOS/android_device_google_gs-common.git|https://github.com/LineageOS/android_device_google_gs-common.git"
-    "vendor/google/oriole|https://github.com/xioyo/proprietary_vendor_google_oriole.git|https://github.com/TheMuppets/proprietary_vendor_google_oriole.git"
-    "vendor/google/raven|https://github.com/TheMuppets/proprietary_vendor_google_raven.git|https://github.com/TheMuppets/proprietary_vendor_google_raven.git"
-    "device/google/raviole-kernels/lineage|https://git.evolution-x.org/Evolution-X-Tensor/device_google_raviole-kernels_evolution.git|https://git.evolution-x.org/Evolution-X-Tensor/device_google_raviole-kernels_evolution.git"
-    "packages/apps/PixelParts|https://github.com/Evolution-X-Devices/packages_apps_PixelParts.git|https://github.com/LineageOS/android_packages_apps_PixelParts.git"
-  )
-  local entry path custom_repo official_repo rc
-  for entry in "${components[@]}"; do
-    IFS='|' read -r path custom_repo official_repo <<< "$entry"
-    choose_repo_and_branch "$path" "$custom_repo" "$official_repo"
-    rc=$?
-    if (( rc != 0 )); then return "$rc"; fi
-  done
+configure_redfin() {
+  configure_standard_device "Redfin (Pixel 5)" \
+    "device/google/redfin|https://github.com/Bias8145/android_device_google_redfin.git|https://github.com/LineageOS/android_device_google_redfin.git" \
+    "device/google/redbull|https://github.com/Bias8145/android_device_google_redbull.git|https://github.com/LineageOS/android_device_google_redbull.git" \
+    "device/google/gs-common||https://github.com/LineageOS/android_device_google_gs-common.git" \
+    "vendor/google/redfin||https://github.com/TheMuppets/proprietary_vendor_google_redfin.git" \
+    "kernel/google/redbull|https://github.com/Bias8145/android_kernel_google_redbull.git|https://github.com/LineageOS/android_kernel_google_redbull.git"
+}
+
+configure_grapheneos() {
+  local codename="$1" model="$2"
+  SELECTED_DEVICE="$model - GrapheneOS"
+  echo -e "\n${CYAN}GrapheneOS source mode${RESET}"
+  echo "Official GrapheneOS uses the platform manifest; it does not mix LineageOS device/vendor trees."
+  echo "The current development branch is 17."
+  if ! command -v repo >/dev/null 2>&1; then
+    echo -e "${RED}[ERROR] 'repo' is required for GrapheneOS source initialization.${RESET}"
+    return 1
+  fi
+  SELECTED_REPOS["."]="https://github.com/GrapheneOS/platform_manifest.git"
+  SELECTED_BRANCHES["."]="17"
+  SELECTED_SOURCES["."]="grapheneos"
+  echo -e "${GREEN}[OK] GrapheneOS manifest selected for $codename.${RESET}"
+}
+
+configure_oriole() {
+  select_menu "Choose OS for Oriole (Pixel 6):" "LineageOS" "GrapheneOS"
+  local choice=$?
+  case "$choice" in
+    254) return 254 ;;
+    0)
+      configure_standard_device "Oriole (Pixel 6) - LineageOS" \
+        "device/google/oriole||https://github.com/LineageOS/android_device_google_oriole.git" \
+        "device/google/raviole||https://github.com/LineageOS/android_device_google_raviole.git" \
+        "device/google/gs101||https://github.com/LineageOS/android_device_google_gs101.git" \
+        "device/google/gs-common||https://github.com/LineageOS/android_device_google_gs-common.git" \
+        "device/google/raviole-kernels||https://github.com/LineageOS/android_device_google_raviole-kernels.git" \
+        "vendor/google/oriole||https://github.com/TheMuppets/proprietary_vendor_google_oriole.git"
+      ;;
+    1) configure_grapheneos "oriole" "Oriole (Pixel 6)" ;;
+  esac
+}
+
+configure_raven() {
+  select_menu "Choose OS for Raven (Pixel 6 Pro):" "LineageOS" "GrapheneOS"
+  local choice=$?
+  case "$choice" in
+    254) return 254 ;;
+    0)
+      configure_standard_device "Raven (Pixel 6 Pro) - LineageOS" \
+        "device/google/raven||https://github.com/LineageOS/android_device_google_raven.git" \
+        "device/google/raviole||https://github.com/LineageOS/android_device_google_raviole.git" \
+        "device/google/gs101||https://github.com/LineageOS/android_device_google_gs101.git" \
+        "device/google/gs-common||https://github.com/LineageOS/android_device_google_gs-common.git" \
+        "device/google/raviole-kernels||https://github.com/LineageOS/android_device_google_raviole-kernels.git" \
+        "vendor/google/raven||https://github.com/TheMuppets/proprietary_vendor_google_raven.git"
+      ;;
+    1) configure_grapheneos "raven" "Raven (Pixel 6 Pro)" ;;
+  esac
 }
 
 validate_all_configuration() {
   local -a paths=() errors=() targets=()
-  local path repo branch source
+  local path repo branch source target
   for path in "${!SELECTED_REPOS[@]}"; do paths+=("$path"); done
   (( ${#paths[@]} > 0 )) || { echo -e "${RED}[ERROR] No repositories selected.${RESET}"; return 1; }
   for path in "${paths[@]}"; do
@@ -374,7 +425,6 @@ show_final_review() {
   echo -e "${BOLD} === FINAL CONFIGURATION REVIEW ===${RESET}"
   echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
   echo -e "${CYAN}Selected Device: ${BOLD}$SELECTED_DEVICE${RESET}"
-  [[ -n "$KERNELSU_OPTION" ]] && echo -e "${CYAN}KernelSU: ${BOLD}$KERNELSU_OPTION${RESET}"
   echo -e "\n${CYAN}Repositories:${RESET}"
   local -a paths=() sorted=()
   local path repo branch source info current_url current_branch action
@@ -382,7 +432,9 @@ show_final_review() {
   mapfile -t sorted < <(printf '%s\n' "${paths[@]}" | sort)
   for path in "${sorted[@]}"; do
     repo="${SELECTED_REPOS[$path]}"; branch="${SELECTED_BRANCHES[$path]}"; source="${SELECTED_SOURCES[$path]}"; action="CLONE"
-    if [[ -d "$path" ]]; then
+    if [[ "$source" == "grapheneos" ]]; then
+      action="REPO INIT + SYNC"
+    elif [[ -d "$path" ]]; then
       info=$(get_existing_repo_info "$path"); current_url="${info%%|*}"; current_branch="${info#*|}"
       if [[ "$(normalize_repo_url "$current_url")" == "$(normalize_repo_url "$repo")" && "$current_branch" == "$branch" ]]; then action="SKIP"; else action="REPLACE"; fi
     fi
@@ -496,14 +548,35 @@ setup_kernelsu_susfs_redbull() {
   echo -e "${GREEN}[SUCCESS] KernelSU-Next + SUSFS setup completed.${RESET}"
 }
 
+execute_grapheneos() {
+  local repo="$1" branch="$2"
+  if ! command -v repo >/dev/null 2>&1; then
+    echo -e "${RED}[ERROR] 'repo' command is required for GrapheneOS.${RESET}"
+    return 1
+  fi
+  if [[ "$DRY_RUN" == "yes" ]]; then
+    echo "DRY-RUN: repo init -u '$repo' -b '$branch'"
+    echo "DRY-RUN: repo sync -j8"
+    return 0
+  fi
+  repo init -u "$repo" -b "$branch" || return 1
+  repo sync -j8 || return 1
+  echo -e "${GREEN}[SUCCESS] GrapheneOS source synchronized.${RESET}"
+  echo -e "${CYAN}Use GrapheneOS adevtool to generate vendor files for the selected Pixel.${RESET}"
+}
+
 execute_cloning() {
-  local successful=() skipped=() failed=() path repo branch rc
+  local successful=() skipped=() failed=() path repo branch source rc
   local -a paths=() sorted=()
   for path in "${!SELECTED_REPOS[@]}"; do paths+=("$path"); done
   mapfile -t sorted < <(printf '%s\n' "${paths[@]}" | sort)
   for path in "${sorted[@]}"; do
-    repo="${SELECTED_REPOS[$path]}"; branch="${SELECTED_BRANCHES[$path]}"
-    clone_repo "$repo" "$path" "$branch"; rc=$?
+    repo="${SELECTED_REPOS[$path]}"; branch="${SELECTED_BRANCHES[$path]}"; source="${SELECTED_SOURCES[$path]}"
+    if [[ "$source" == "grapheneos" ]]; then
+      execute_grapheneos "$repo" "$branch"; rc=$?
+    else
+      clone_repo "$repo" "$path" "$branch"; rc=$?
+    fi
     case "$rc" in
       0) successful+=("$path") ;;
       2) skipped+=("$path") ;;
@@ -512,9 +585,6 @@ execute_cloning() {
     esac
     echo
   done
-  if [[ "$DRY_RUN" == "no" && "$KERNELSU_OPTION" == "yes" && "$SELECTED_DEVICE" == "Bramble (Pixel 4a 5G)" ]]; then
-    setup_kernelsu_susfs_redbull || echo -e "${RED}[ERROR] KernelSU/SUSFS setup failed.${RESET}"
-  fi
   echo -e "\n${BOLD}=== EXECUTION SUMMARY ===${RESET}"
   echo "Total: ${#SELECTED_REPOS[@]}"
   echo -e "${GREEN}Cloned/Planned: ${#successful[@]}${RESET}"
@@ -539,7 +609,9 @@ main() {
       "Coral (Pixel 4 XL)" \
       "Flame (Pixel 4)" \
       "Sunfish (Pixel 4a)" \
-      "Raviole (Pixel 6/Pro)"
+      "Redfin (Pixel 5)" \
+      "Oriole (Pixel 6)" \
+      "Raven (Pixel 6 Pro)"
     local device_choice=$?
     case "$device_choice" in
       254) exit 0 ;;
@@ -547,7 +619,9 @@ main() {
       1) configure_coral ;;
       2) configure_flame ;;
       3) configure_sunfish ;;
-      4) configure_raviole ;;
+      4) configure_redfin ;;
+      5) configure_oriole ;;
+      6) configure_raven ;;
       *) continue ;;
     esac
     local config_rc=$?
