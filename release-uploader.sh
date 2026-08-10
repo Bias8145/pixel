@@ -2,14 +2,14 @@
 set -u -o pipefail
 
 # Bias8145 multi-series release uploader
-# Secrets are never stored in this public script.
+# Secrets are loaded from the environment or a local 600-permission secrets file.
 
 msg(){ printf '%s\n' "$*"; }
-ok(){ printf '%s\n' "[OK] $*"; }
-warn(){ printf '%s\n' "[!] $*" >&2; }
-die(){ printf '%s\n' "[ERROR] $*" >&2; exit 1; }
+ok(){ printf '[OK] %s\n' "$*"; }
+warn(){ printf '[!] %s\n' "$*" >&2; }
+die(){ printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"; }
-for x in bash curl jq find sed awk sha256sum md5sum stat date mktemp sort; do need "$x"; done
+for x in bash curl jq find sed awk sha256sum md5sum stat date mktemp sort tr; do need "$x"; done
 
 SECRETS_FILE="${PIXEL_UPLOADER_SECRETS:-$HOME/.config/pixel-uploader/secrets.env}"
 if [[ -z "${BOT_TOKEN:-}" || -z "${CHAT_ID:-}" || -z "${PIXELDRAIN_API_KEY:-}" || -z "${TELEGRAPH_TOKEN:-}" ]]; then
@@ -35,7 +35,10 @@ choose(){
     local max="$1" prompt="$2" value
     while :; do
         read -r -p "$prompt" value || exit 1
-        if [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= max )); then printf '%s' "$value"; return 0; fi
+        if [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= max )); then
+            printf '%s' "$value"
+            return 0
+        fi
         warn "Enter 1-$max."
     done
 }
@@ -51,6 +54,7 @@ prop(){
 }
 
 safe(){ printf '%s' "$1" | sed 's/[^A-Za-z0-9._-]/_/g;s/_\+/_/g;s/^_//;s/_$//'; }
+html(){ printf '%s' "$1" | sed -e 's/\&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'; }
 label(){
     local b="$(basename "$1")" l="${b,,}"
     case "$l" in
@@ -66,6 +70,7 @@ label(){
         *) printf 'FILE';;
     esac
 }
+button_label(){ printf '%s' "$1"; }
 
 mapfile -t DEVICES < <(find "$OUT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
 ((${#DEVICES[@]})) || die 'No device output found.'
@@ -129,7 +134,7 @@ n="$(choose 6 'Select: ')"; ROOTM=('' 'None' 'KSU' 'KSU Next' 'KSU Legacy' 'ReSu
 SUSFS=Disabled
 if [[ "$ROOTM" != None ]]; then echo; echo 'SUSFS:'; echo '  [1] Without SUSFS'; echo '  [2] With SUSFS'; n="$(choose 2 'Select: ')"; [[ "$n" == 2 ]] && SUSFS=Enabled; fi
 
-DATE="$(date +%Y-%m-%d)"; RELEASE_ID="$(safe "$PROJECT")_${CODENAME}_$(safe "$VARIANT")_$(safe "$ROOTM")_$(safe "$SUSFS")_$DATE"
+DATE="$(date +%Y-%m-%d)"; DISPLAY_DATE="$(date +%d-%m-%Y)"; RELEASE_ID="$(safe "$PROJECT")_${CODENAME}_$(safe "$VARIANT")_$(safe "$ROOTM")_$(safe "$SUSFS")_$DATE"
 
 msg 'Checking credentials...'
 curl --fail --silent --show-error --max-time 20 -u ":$PIXELDRAIN_API_KEY" https://pixeldrain.com/api/user/files >/dev/null || die 'Pixeldrain authentication failed. No files were uploaded.'
@@ -181,54 +186,109 @@ while IFS=$'\t' read -r original uploaded type size md5 sha link; do
 done < "$MANIFEST"
 GUIDE+='\nReboot after installation: fastboot reboot recovery\n'
 
-# Build Telegraph JSON with jq instead of hand-written JSON.
 TELEGRAPH_CONTENT="$(jq -cn --arg text "$GUIDE" '[{tag:"pre",children:[$text]}]')" || die 'Failed to build Telegraph content JSON.'
 TELEGRAPH_RESPONSE="$(curl --fail-with-body -sS -X POST https://api.telegra.ph/createPage \
     --data-urlencode "access_token=$TELEGRAPH_TOKEN" \
-    --data-urlencode "title=$PROJECT - $DEVICE_NAME - $DATE" \
-    --data-urlencode "author_name=$AUTHOR" \
-    --data-urlencode 'author_url=https://khaliq-repos.pages.dev/' \
-    --data-urlencode "content=$TELEGRAPH_CONTENT" \
-    --data-urlencode 'return_content=false')" || TELEGRAPH_RESPONSE=''
-TELEGRAPH_URL=''
-if [[ -n "$TELEGRAPH_RESPONSE" ]]; then TELEGRAPH_URL="$(jq -r '.result.url // empty' <<< "$TELEGRAPH_RESPONSE" 2>/dev/null || true)"; fi
-[[ -n "$TELEGRAPH_URL" ]] && ok 'Telegraph release guide created.' || warn 'Telegraph guide could not be created; publishing Telegram without Flash Guide button.'
+    --data-urlencode "title=Flash Guide - $DEVICE_NAME - $DISPLAY_DATE" \
+    --data-urlencode "author_name=Bias8145" \
+    --data-urlencode "author_url=https://khaliq-repos.pages.dev/" \
+    --data-urlencode "content=$TELEGRAPH_CONTENT")" || TELEGRAPH_RESPONSE=''
+TELEGRAPH_URL="$(jq -r '.result.url // empty' <<< "$TELEGRAPH_RESPONSE" 2>/dev/null || true)"
+[[ -n "$TELEGRAPH_URL" ]] && ok 'Telegraph release guide created' || warn 'Telegraph guide could not be created; publishing without Flash Guide button.'
 
-MESSAGE="$(jq -nr --arg project "$PROJECT" --arg device "$DEVICE_NAME" --arg code "$CODENAME" --arg android "$ANDROID" --arg build "$BUILD" --arg spl "$PATCH" --arg variant "$VARIANT" --arg root "$ROOTM" --arg susfs "$SUSFS" --arg author "$AUTHOR" '"<b>New Release: \($project|@html)</b>\n\nDevice: \($device|@html)\nCodename: <code>\($code|@html)</code>\nAndroid: \($android|@html)\nBuild: \($build|@html)\nSecurity Patch: \($spl|@html)\nVariant: \($variant|@html)\nRoot: \($root|@html)\nSUSFS: \($susfs|@html)\nMaintainer: \($author|@html)\n\n<b>Files:</b>"')" 
+VARIANT_NOTE="$VARIANT"
+GOOGLE_SERVICES='GApps included'
+case "$VARIANT" in
+    Vanilla) GOOGLE_SERVICES='No Google Apps';;
+    microG) GOOGLE_SERVICES='microG included';;
+esac
+ROOT_NOTE="$ROOTM"; [[ "$ROOTM" == None ]] && ROOT_NOTE='None'
+SUSFS_NOTE='Disabled'; [[ "$SUSFS" == Enabled ]] && SUSFS_NOTE='Enabled'
 
-KEY_ROWS="$TMP/keyrows.ndjson"; : > "$KEY_ROWS"
+TAGS="[$(safe "$PROJECT")][$BUILD][Android $ANDROID]"
+[[ "$VARIANT" != Vanilla && "$VARIANT" != microG ]] && TAGS+="[$(safe "$VARIANT")]"
+[[ "$ROOTM" != None ]] && TAGS+="[$(safe "$ROOTM")]"
+[[ "$SUSFS" == Enabled ]] && TAGS+='[SUSFS]'
+TAGS+="[$DISPLAY_DATE]"
+
+TELEGRAM_MESSAGE="<b>New Release: $(html "$PROJECT")</b>\n\n"
+TELEGRAM_MESSAGE+="<b>Device:</b> $(html "$DEVICE_NAME") ($(html "$CODENAME"))\n"
+TELEGRAM_MESSAGE+="<b>Project:</b> $(html "$PROJECT")\n"
+TELEGRAM_MESSAGE+="<b>Android Version:</b> $(html "$ANDROID")\n"
+TELEGRAM_MESSAGE+="<b>Security Patch:</b> $(html "$PATCH")\n"
+TELEGRAM_MESSAGE+="<b>Build:</b> $(html "$BUILD")\n"
+TELEGRAM_MESSAGE+="<b>Variant:</b> $(html "$VARIANT_NOTE")\n"
+TELEGRAM_MESSAGE+="<b>Google Services:</b> $(html "$GOOGLE_SERVICES")\n"
+TELEGRAM_MESSAGE+="<b>Rooting Method:</b> $(html "$ROOT_NOTE")\n"
+TELEGRAM_MESSAGE+="<b>SUSFS:</b> $(html "$SUSFS_NOTE")\n"
+TELEGRAM_MESSAGE+="<b>Release Date:</b> $(html "$DISPLAY_DATE")\n"
+TELEGRAM_MESSAGE+="<b>Maintainer:</b> $(html "$AUTHOR")\n\n"
+TELEGRAM_MESSAGE+="<b>Tag:</b> $(html "$TAGS")\n\n"
+TELEGRAM_MESSAGE+='<b>Release Notes:</b>\n\n'
+TELEGRAM_MESSAGE+="• $(html "$GOOGLE_SERVICES")\n"
+[[ "$ROOTM" != None ]] && TELEGRAM_MESSAGE+="• $(html "$ROOTM") support included\n"
+[[ "$SUSFS" == Enabled ]] && TELEGRAM_MESSAGE+='• SUSFS enabled\n'
+TELEGRAM_MESSAGE+='\nAlways backup your data before flashing.\nFollow the flash guide for proper installation\n\n'
+TELEGRAM_MESSAGE+='<b>Files Size Information:</b>\n'
 while IFS=$'\t' read -r original uploaded type size md5 sha link; do
-    jq -cn --arg text "Download $type" --arg url "$link" '[{text:$text,url:$url}]' >> "$KEY_ROWS"
-    mb="$(awk -v n="$size" 'BEGIN{printf "%.2f MB",n/1048576}')"
-    file_block="$(jq -nr --arg type "$type" --arg name "$uploaded" --arg mb "$mb" --arg md5 "$md5" --arg sha "$sha" '"\n\n<b>\($type|@html)</b>\nName: <code>\($name|@html)</code>\nSize: \($mb)\nMD5: <code>\($md5)</code>\nSHA256: <code>\($sha)</code>"')"
-    MESSAGE+="$file_block"
+    mb="$(awk -v n="$size" 'BEGIN{printf "%.2f",n/1048576}')"
+    TELEGRAM_MESSAGE+="□ <b>$(html "$type")</b> — ${mb} MB | MD5: <code>${md5:0:8}</code> | SHA: <code>${sha:0:8}</code>\n"
 done < "$MANIFEST"
-if [[ -n "$TELEGRAPH_URL" ]]; then jq -cn --arg url "$TELEGRAPH_URL" '[{text:"Flash Guide",url:$url}]' >> "$KEY_ROWS"; fi
-jq -cn '[{text:"About Developer",url:"https://khaliq-repos.pages.dev/"}]' >> "$KEY_ROWS"
-REPLY_MARKUP="$(jq -sc '{inline_keyboard:.}' "$KEY_ROWS")" || die 'Failed to build Telegram keyboard JSON.'
-# Validate once before sending so malformed JSON can never reach Telegram.
-printf '%s' "$REPLY_MARKUP" | jq -e '.inline_keyboard|type=="array"' >/dev/null || die 'Telegram keyboard JSON validation failed.'
+TELEGRAM_MESSAGE+='\nClick the buttons below to download the files'
 
-MESSAGE+="\n\nRelease published successfully."
-
-if [[ -n "$BANNER_URL" ]]; then
-    if curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" \
-        --data-urlencode "chat_id=$CHAT_ID" \
-        --data-urlencode "photo=$BANNER_URL" \
-        --data-urlencode "caption=$MESSAGE" \
-        --data-urlencode 'parse_mode=HTML' \
-        --data-urlencode "reply_markup=$REPLY_MARKUP" >/dev/null; then
-        ok 'Telegram release published with banner.'
+# Build Telegram inline keyboard with jq. Two download buttons per row.
+BUTTONS=()
+while IFS=$'\t' read -r original uploaded type size md5 sha link; do
+    BUTTONS+=("$(jq -cn --arg text "$(button_label "$type")" --arg url "$link" '{text:$text,url:$url}')")
+done < "$MANIFEST"
+ROWS_JSON='[]'
+for ((i=0; i<${#BUTTONS[@]}; i+=2)); do
+    if (( i + 1 < ${#BUTTONS[@]} )); then
+        row="$(jq -cn --argjson a "${BUTTONS[$i]}" --argjson b "${BUTTONS[$((i+1))]}" '[$a,$b]')"
     else
-        warn 'Banner publish failed; retrying as text message.'
-        curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
-            --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "text=$MESSAGE" \
-            --data-urlencode 'parse_mode=HTML' --data-urlencode "reply_markup=$REPLY_MARKUP" >/dev/null || die 'Telegram publish failed.'
-        ok 'Telegram release published without banner.'
+        row="$(jq -cn --argjson a "${BUTTONS[$i]}" '[$a]')"
+    fi
+    ROWS_JSON="$(jq -cn --argjson rows "$ROWS_JSON" --argjson row "$row" '$rows + [$row]')"
+done
+if [[ -n "$TELEGRAPH_URL" ]]; then
+    ROWS_JSON="$(jq -cn --argjson rows "$ROWS_JSON" --arg url "$TELEGRAPH_URL" '$rows + [[{text:"Flash Guide",url:$url}]]')"
+fi
+ROWS_JSON="$(jq -cn --argjson rows "$ROWS_JSON" --arg url 'https://khaliq-repos.pages.dev/' '$rows + [[{text:"About Developer",url:$url}]]')"
+KEYBOARD_JSON="$(jq -cn --argjson rows "$ROWS_JSON" '{inline_keyboard:$rows}')" || die 'Failed to build Telegram keyboard JSON.'
+jq -e . >/dev/null <<< "$KEYBOARD_JSON" || die 'Telegram keyboard JSON validation failed.'
+
+send_result=''
+if [[ -n "$BANNER_URL" ]]; then
+    send_result="$(curl -sS -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" \
+        -d chat_id="$CHAT_ID" \
+        --data-urlencode photo="$BANNER_URL" \
+        --data-urlencode caption="$TELEGRAM_MESSAGE" \
+        -d parse_mode=HTML \
+        --data-urlencode reply_markup="$KEYBOARD_JSON")"
+    if ! jq -e '.ok == true' >/dev/null <<< "$send_result"; then
+        warn 'Banner send failed; falling back to text message.'
+        send_result="$(curl -sS -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+            -d chat_id="$CHAT_ID" \
+            --data-urlencode text="$TELEGRAM_MESSAGE" \
+            -d parse_mode=HTML \
+            --data-urlencode reply_markup="$KEYBOARD_JSON")"
     fi
 else
-    curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
-        --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "text=$MESSAGE" \
-        --data-urlencode 'parse_mode=HTML' --data-urlencode "reply_markup=$REPLY_MARKUP" >/dev/null || die 'Telegram publish failed.'
-    ok 'Telegram release published.'
+    send_result="$(curl -sS -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+        -d chat_id="$CHAT_ID" \
+        --data-urlencode text="$TELEGRAM_MESSAGE" \
+        -d parse_mode=HTML \
+        --data-urlencode reply_markup="$KEYBOARD_JSON")"
 fi
+
+if jq -e '.ok == true' >/dev/null <<< "$send_result"; then
+    ok 'Telegram release published successfully.'
+else
+    warn "Telegram publish failed: $(jq -r '.description // "unknown error"' <<< "$send_result" 2>/dev/null || printf '%s' "$send_result")"
+    exit 1
+fi
+
+printf '%s\n' "$TELEGRAM_MESSAGE" > "$TMP/release-message.html"
+printf '%s\n' "$KEYBOARD_JSON" > "$TMP/telegram-keyboard.json"
+printf '%s\n' "$GUIDE" > "$TMP/flash-guide.txt"
+msg "Release ID: $RELEASE_ID"
