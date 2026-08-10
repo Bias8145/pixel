@@ -9,7 +9,7 @@ ok(){ printf '%s\n' "[OK] $*"; }
 warn(){ printf '%s\n' "[!] $*" >&2; }
 die(){ printf '%s\n' "[ERROR] $*" >&2; exit 1; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"; }
-for x in bash curl jq find sed awk sha256sum md5sum stat date mktemp; do need "$x"; done
+for x in bash curl jq find sed awk sha256sum md5sum stat date mktemp sort; do need "$x"; done
 
 SECRETS_FILE="${PIXEL_UPLOADER_SECRETS:-$HOME/.config/pixel-uploader/secrets.env}"
 if [[ -z "${BOT_TOKEN:-}" || -z "${CHAT_ID:-}" || -z "${PIXELDRAIN_API_KEY:-}" || -z "${TELEGRAPH_TOKEN:-}" ]]; then
@@ -35,10 +35,7 @@ choose(){
     local max="$1" prompt="$2" value
     while :; do
         read -r -p "$prompt" value || exit 1
-        if [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= max )); then
-            printf '%s' "$value"
-            return 0
-        fi
+        if [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= max )); then printf '%s' "$value"; return 0; fi
         warn "Enter 1-$max."
     done
 }
@@ -48,62 +45,47 @@ prop(){
     for f in "$DOUT/system/build.prop" "$DOUT/vendor/build.prop" "$DOUT/product/build.prop" "$DOUT/system/system/build.prop" "$DOUT/system/etc/prop.default" "$DOUT/vendor/etc/build.prop"; do
         [[ -f "$f" ]] || continue
         v="$(sed -n "s/^${key}=//p" "$f" | head -n1 | tr -d '\r')"
-        if [[ -n "$v" ]]; then printf '%s' "$v"; return; fi
+        [[ -n "$v" ]] && { printf '%s' "$v"; return; }
     done
     printf 'Unknown'
 }
 
-html(){ printf '%s' "$1" | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g;s/"/\&quot;/g;'; }
 safe(){ printf '%s' "$1" | sed 's/[^A-Za-z0-9._-]/_/g;s/_\+/_/g;s/^_//;s/_$//'; }
-
 label(){
     local b="$(basename "$1")" l="${b,,}"
     case "$l" in
-        *.zip|*.ozip|*.zip.md5) printf 'ROM' ;;
-        boot*.img) printf 'BOOT' ;;
-        init_boot*.img) printf 'INIT BOOT' ;;
-        dtbo*.img) printf 'DTBO' ;;
-        vendor_boot*.img) printf 'VENDOR BOOT' ;;
-        vendor_kernel_boot*.img) printf 'VENDOR KERNEL BOOT' ;;
-        vbmeta_system*.img) printf 'VBMETA SYSTEM' ;;
-        vbmeta_vendor*.img) printf 'VBMETA VENDOR' ;;
-        vbmeta*.img) printf 'VBMETA' ;;
-        *) printf 'FILE' ;;
+        *.zip|*.ozip|*.zip.md5) printf 'ROM';;
+        boot*.img) printf 'BOOT';;
+        init_boot*.img) printf 'INIT BOOT';;
+        dtbo*.img) printf 'DTBO';;
+        vendor_boot*.img) printf 'VENDOR BOOT';;
+        vendor_kernel_boot*.img) printf 'VENDOR KERNEL BOOT';;
+        vbmeta_system*.img) printf 'VBMETA SYSTEM';;
+        vbmeta_vendor*.img) printf 'VBMETA VENDOR';;
+        vbmeta*.img) printf 'VBMETA';;
+        *) printf 'FILE';;
     esac
 }
 
 mapfile -t DEVICES < <(find "$OUT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
 ((${#DEVICES[@]})) || die 'No device output found.'
-echo
-echo 'Build outputs:'
+echo; echo 'Build outputs:'
 for ((i=0; i<${#DEVICES[@]}; i++)); do printf '  [%d] %s\n' "$((i+1))" "${DEVICES[$i]}"; done
 n="$(choose "${#DEVICES[@]}" 'Select device: ')"
-CODENAME="${DEVICES[$((n-1))]}"
-DOUT="$OUT/$CODENAME"
-ANDROID="$(prop ro.build.version.release)"
-PATCH="$(prop ro.build.version.security_patch)"
-BUILD="$(prop ro.build.id)"
-DISPLAY="$(prop ro.build.display.id)"
-DEVICE_DETECTED="$(prop ro.product.model)"
-[[ "$DEVICE_DETECTED" == Unknown ]] && DEVICE_DETECTED="$(prop ro.product.name)"
-[[ "$DEVICE_DETECTED" == Unknown ]] && DEVICE_DETECTED="$CODENAME"
+CODENAME="${DEVICES[$((n-1))]}"; DOUT="$OUT/$CODENAME"
+ANDROID="$(prop ro.build.version.release)"; PATCH="$(prop ro.build.version.security_patch)"; BUILD="$(prop ro.build.id)"; DISPLAY="$(prop ro.build.display.id)"
+DEVICE_DETECTED="$(prop ro.product.model)"; [[ "$DEVICE_DETECTED" == Unknown ]] && DEVICE_DETECTED="$(prop ro.product.name)"; [[ "$DEVICE_DETECTED" == Unknown ]] && DEVICE_DETECTED="$CODENAME"
 msg "Device: $CODENAME | Android: $ANDROID | Build: $BUILD | SPL: $PATCH"
 
-echo
-echo 'Upload:'
-echo '  [1] ROM'
-echo '  [2] Images'
-echo '  [3] ROM + Images'
-MODE="$(choose 3 'Select: ')"
-FILES=()
+echo; echo 'Upload:'; echo '  [1] ROM'; echo '  [2] Images'; echo '  [3] ROM + Images'
+MODE="$(choose 3 'Select: ')"; FILES=()
 
 if (( MODE == 1 || MODE == 3 )); then
     mapfile -t ROMS < <(find "$DOUT" -maxdepth 1 -type f \( -iname '*.zip' -o -iname '*.ozip' -o -iname '*.zip.md5' \) | sort)
     ((${#ROMS[@]})) || die 'No ROM package found.'
     echo; echo 'ROM packages:'
     for ((i=0; i<${#ROMS[@]}; i++)); do printf '  [%d] %s\n' "$((i+1))" "$(basename "${ROMS[$i]}")"; done
-    n="$(choose "${#ROMS[@]}" 'Select ROM: ')"
-    FILES+=("${ROMS[$((n-1))]}")
+    n="$(choose "${#ROMS[@]}" 'Select ROM: ')"; FILES+=("${ROMS[$((n-1))]}")
 fi
 
 if (( MODE == 2 || MODE == 3 )); then
@@ -120,8 +102,7 @@ if (( MODE == 2 || MODE == 3 )); then
         normalized="$(printf '%s' "$raw" | tr ',\t\r' '   ' | sed -E 's/[[:space:]]+/ /g;s/^ +//;s/ +$//')"
         [[ -n "$normalized" ]] || { warn 'Select at least one image.'; continue; }
         [[ "$normalized" =~ ^[0-9]+( [0-9]+)*$ ]] || { warn 'Use space-separated numbers, for example: 1 2 6'; continue; }
-        selected=()
-        while read -r number; do selected+=("$number"); done < <(printf '%s\n' "$normalized" | awk '{for(i=1;i<=NF;i++) print $i}')
+        selected=(); while read -r number; do selected+=("$number"); done < <(printf '%s\n' "$normalized" | awk '{for(i=1;i<=NF;i++) print $i}')
         good=1; seen=' '
         for number in "${selected[@]}"; do
             (( number >= 1 && number <= ${#IMGS[@]} )) || { good=0; break; }
@@ -132,39 +113,23 @@ if (( MODE == 2 || MODE == 3 )); then
         warn "Enter valid image numbers from 1-${#IMGS[@]}, separated by spaces."
     done
     echo 'Selected images:'
-    for number in "${selected[@]}"; do
-        FILES+=("${IMGS[$((number-1))]}")
-        printf '  - %s\n' "$(basename "${IMGS[$((number-1))]}")"
-    done
+    for number in "${selected[@]}"; do FILES+=("${IMGS[$((number-1))]}"); printf '  - %s\n' "$(basename "${IMGS[$((number-1))]}")"; done
 fi
 
-read -r -p "Project name [${DISPLAY:-ROM}]: " PROJECT || exit 1
-PROJECT="${PROJECT:-${DISPLAY:-ROM}}"
-read -r -p 'Maintainer [Unknown]: ' AUTHOR || exit 1
-AUTHOR="${AUTHOR:-Unknown}"
-read -r -p "Device name [${DEVICE_DETECTED}]: " DEVICE_NAME || exit 1
-DEVICE_NAME="${DEVICE_NAME:-$DEVICE_DETECTED}"
+read -r -p "Project name [${DISPLAY:-ROM}]: " PROJECT || exit 1; PROJECT="${PROJECT:-${DISPLAY:-ROM}}"
+read -r -p 'Maintainer [Unknown]: ' AUTHOR || exit 1; AUTHOR="${AUTHOR:-Unknown}"
+read -r -p "Device name [${DEVICE_DETECTED}]: " DEVICE_NAME || exit 1; DEVICE_NAME="${DEVICE_NAME:-$DEVICE_DETECTED}"
 read -r -p 'Banner URL [optional]: ' BANNER_URL || exit 1
 [[ -z "$BANNER_URL" || "$BANNER_URL" =~ ^https?:// ]] || die 'Banner URL must start with http:// or https://'
 
-echo; echo 'Variant:'
-echo '  [1] GApps Full'; echo '  [2] GApps Core'; echo '  [3] GApps Pico'; echo '  [4] Vanilla'; echo '  [5] microG'
-n="$(choose 5 'Select: ')"
-VARIANT=('' 'GApps Full' 'GApps Core' 'GApps Pico' 'Vanilla' 'microG')[$n]
-
-echo; echo 'Rooting method:'
-echo '  [1] None'; echo '  [2] KSU'; echo '  [3] KSU Next'; echo '  [4] KSU Legacy'; echo '  [5] ReSukiSU'; echo '  [6] SukiSU'
-n="$(choose 6 'Select: ')"
-ROOTM=('' 'None' 'KSU' 'KSU Next' 'KSU Legacy' 'ReSukiSU' 'SukiSU')[$n]
+echo; echo 'Variant:'; echo '  [1] GApps Full'; echo '  [2] GApps Core'; echo '  [3] GApps Pico'; echo '  [4] Vanilla'; echo '  [5] microG'
+n="$(choose 5 'Select: ')"; VARIANT=('' 'GApps Full' 'GApps Core' 'GApps Pico' 'Vanilla' 'microG')[$n]
+echo; echo 'Rooting method:'; echo '  [1] None'; echo '  [2] KSU'; echo '  [3] KSU Next'; echo '  [4] KSU Legacy'; echo '  [5] ReSukiSU'; echo '  [6] SukiSU'
+n="$(choose 6 'Select: ')"; ROOTM=('' 'None' 'KSU' 'KSU Next' 'KSU Legacy' 'ReSukiSU' 'SukiSU')[$n]
 SUSFS=Disabled
-if [[ "$ROOTM" != None ]]; then
-    echo; echo 'SUSFS:'; echo '  [1] Without SUSFS'; echo '  [2] With SUSFS'
-    n="$(choose 2 'Select: ')"
-    [[ "$n" == 2 ]] && SUSFS=Enabled
-fi
+if [[ "$ROOTM" != None ]]; then echo; echo 'SUSFS:'; echo '  [1] Without SUSFS'; echo '  [2] With SUSFS'; n="$(choose 2 'Select: ')"; [[ "$n" == 2 ]] && SUSFS=Enabled; fi
 
-DATE="$(date +%Y-%m-%d)"
-RELEASE_ID="$(safe "$PROJECT")_${CODENAME}_$(safe "$VARIANT")_$(safe "$ROOTM")_$(safe "$SUSFS")_$DATE"
+DATE="$(date +%Y-%m-%d)"; RELEASE_ID="$(safe "$PROJECT")_${CODENAME}_$(safe "$VARIANT")_$(safe "$ROOTM")_$(safe "$SUSFS")_$DATE"
 
 msg 'Checking credentials...'
 curl --fail --silent --show-error --max-time 20 -u ":$PIXELDRAIN_API_KEY" https://pixeldrain.com/api/user/files >/dev/null || die 'Pixeldrain authentication failed. No files were uploaded.'
@@ -172,33 +137,24 @@ curl --fail --silent --show-error --max-time 20 "https://api.telegram.org/bot$BO
 curl --fail --silent --show-error --max-time 20 -X POST https://api.telegra.ph/getPageList -d "access_token=$TELEGRAPH_TOKEN" | jq -e '.ok == true' >/dev/null || die 'Telegraph authentication failed. No files were uploaded.'
 ok 'Pixeldrain authentication OK'; ok 'Telegram bot authentication OK'; ok 'Telegraph authentication OK'
 
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-MANIFEST="$TMP/files.tsv"
-: > "$MANIFEST"
-
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT; MANIFEST="$TMP/files.tsv"; : > "$MANIFEST"
 pixeldrain_upload(){
     local f="$1" name="$2" response id
     response="$(curl --fail-with-body -sS --max-time 3600 -u ":$PIXELDRAIN_API_KEY" -F "file=@$f;filename=$name" https://pixeldrain.com/api/file)" || return 1
-    id="$(jq -r '.id // empty' <<< "$response")"
-    [[ -n "$id" ]] || return 1
+    id="$(jq -r '.id // empty' <<< "$response")"; [[ -n "$id" ]] || return 1
     printf 'https://pixeldrain.com/u/%s' "$id"
 }
 
-echo; echo 'Uploading selected files to Pixeldrain...'
-SUCCESS=0
+echo; echo 'Uploading selected files to Pixeldrain...'; SUCCESS=0
 for f in "${FILES[@]}"; do
     [[ -f "$f" ]] || { warn "Missing file: $f"; continue; }
     base="$(basename "$f")"; ext="${base##*.}"; stem="${base%.*}"
     if [[ "$base" == *.zip.md5 ]]; then name="${base%.zip.md5}_${RELEASE_ID}.zip.md5"; else name="${stem}_${RELEASE_ID}.${ext}"; fi
-    size="$(stat -c %s "$f" 2>/dev/null || stat -f %z "$f")"
-    md5="$(md5sum "$f" | awk '{print $1}')"; sha="$(sha256sum "$f" | awk '{print $1}')"; type="$(label "$f")"
+    size="$(stat -c %s "$f" 2>/dev/null || stat -f %z "$f")"; md5="$(md5sum "$f" | awk '{print $1}')"; sha="$(sha256sum "$f" | awk '{print $1}')"; type="$(label "$f")"
     if link="$(pixeldrain_upload "$f" "$name")"; then
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$base" "$name" "$type" "$size" "$md5" "$sha" "$link" >> "$MANIFEST"
         SUCCESS=$((SUCCESS + 1)); ok "$type: uploaded"
-    else
-        warn "Pixeldrain upload failed: $base"
-    fi
+    else warn "Pixeldrain upload failed: $base"; fi
 done
 (( SUCCESS > 0 )) || die 'No files were uploaded to Pixeldrain; Telegram publish cancelled.'
 
@@ -225,49 +181,54 @@ while IFS=$'\t' read -r original uploaded type size md5 sha link; do
 done < "$MANIFEST"
 GUIDE+='\nReboot after installation: fastboot reboot recovery\n'
 
-# Telegraph content is generated by jq so quotes, ampersands and newlines in
-# project/device/maintainer/file names can never corrupt the JSON request.
-TELEGRAPH_URL=''
-GUIDE_JSON="$(jq -cn --arg text "$GUIDE" '[{"tag":"pre","children":[$text]}]')"
-TG_RESPONSE="$(curl --silent --show-error --max-time 30 -X POST https://api.telegra.ph/createPage \
+# Build Telegraph JSON with jq instead of hand-written JSON.
+TELEGRAPH_CONTENT="$(jq -cn --arg text "$GUIDE" '[{tag:"pre",children:[$text]}]')" || die 'Failed to build Telegraph content JSON.'
+TELEGRAPH_RESPONSE="$(curl --fail-with-body -sS -X POST https://api.telegra.ph/createPage \
     --data-urlencode "access_token=$TELEGRAPH_TOKEN" \
     --data-urlencode "title=$PROJECT - $DEVICE_NAME - $DATE" \
     --data-urlencode "author_name=$AUTHOR" \
-    --data-urlencode 'author_url=https://github.com/Bias8145' \
-    --data-urlencode "content=$GUIDE_JSON")" || true
-if [[ "$TG_RESPONSE" == \{*\} ]] && jq -e '.ok == true' >/dev/null 2>&1 <<< "$TG_RESPONSE"; then
-    TELEGRAPH_URL="$(jq -r '.result.url // empty' <<< "$TG_RESPONSE")"
-    [[ -n "$TELEGRAPH_URL" ]] && ok 'Telegraph release guide created.'
-else
-    warn 'Telegraph guide could not be created; continuing Telegram publish without Flash Guide button.'
-fi
+    --data-urlencode 'author_url=https://khaliq-repos.pages.dev/' \
+    --data-urlencode "content=$TELEGRAPH_CONTENT" \
+    --data-urlencode 'return_content=false')" || TELEGRAPH_RESPONSE=''
+TELEGRAPH_URL=''
+if [[ -n "$TELEGRAPH_RESPONSE" ]]; then TELEGRAPH_URL="$(jq -r '.result.url // empty' <<< "$TELEGRAPH_RESPONSE" 2>/dev/null || true)"; fi
+[[ -n "$TELEGRAPH_URL" ]] && ok 'Telegraph release guide created.' || warn 'Telegraph guide could not be created; publishing Telegram without Flash Guide button.'
 
-E_PROJECT="$(html "$PROJECT")"; E_DEVICE="$(html "$DEVICE_NAME")"; E_AUTHOR="$(html "$AUTHOR")"; E_VARIANT="$(html "$VARIANT")"; E_ROOT="$(html "$ROOTM")"; E_SUSFS="$(html "$SUSFS")"
-MESSAGE="<b>New Release: $E_PROJECT</b>\n\nDevice: $E_DEVICE\nCodename: <code>$(html "$CODENAME")</code>\nAndroid: $(html "$ANDROID")\nBuild: $(html "$BUILD")\nSecurity Patch: $(html "$PATCH")\nVariant: $E_VARIANT\nRoot: $E_ROOT\nSUSFS: $E_SUSFS\nMaintainer: $E_AUTHOR\n\n<b>Files:</b>"
+MESSAGE="$(jq -nr --arg project "$PROJECT" --arg device "$DEVICE_NAME" --arg code "$CODENAME" --arg android "$ANDROID" --arg build "$BUILD" --arg spl "$PATCH" --arg variant "$VARIANT" --arg root "$ROOTM" --arg susfs "$SUSFS" --arg author "$AUTHOR" '"<b>New Release: \($project|@html)</b>\n\nDevice: \($device|@html)\nCodename: <code>\($code|@html)</code>\nAndroid: \($android|@html)\nBuild: \($build|@html)\nSecurity Patch: \($spl|@html)\nVariant: \($variant|@html)\nRoot: \($root|@html)\nSUSFS: \($susfs|@html)\nMaintainer: \($author|@html)\n\n<b>Files:</b>"')" 
 
-# Build Telegram inline keyboard through jq instead of hand-written JSON.
-# This prevents malformed reply_markup when a URL or file name contains JSON
-# special characters.
-BUTTONS='[]'
+KEY_ROWS="$TMP/keyrows.ndjson"; : > "$KEY_ROWS"
 while IFS=$'\t' read -r original uploaded type size md5 sha link; do
-    BUTTONS="$(jq -cn --argjson a "$BUTTONS" --arg text "Download $type" --arg url "$link" '$a + [[{"text":$text,"url":$url}]]')"
+    jq -cn --arg text "Download $type" --arg url "$link" '[{text:$text,url:$url}]' >> "$KEY_ROWS"
     mb="$(awk -v n="$size" 'BEGIN{printf "%.2f MB",n/1048576}')"
-    MESSAGE+="\n\n<b>$(html "$type")</b>\nName: <code>$(html "$uploaded")</code>\nSize: $mb\nMD5: <code>$md5</code>\nSHA256: <code>$sha</code>"
+    file_block="$(jq -nr --arg type "$type" --arg name "$uploaded" --arg mb "$mb" --arg md5 "$md5" --arg sha "$sha" '"\n\n<b>\($type|@html)</b>\nName: <code>\($name|@html)</code>\nSize: \($mb)\nMD5: <code>\($md5)</code>\nSHA256: <code>\($sha)</code>"')"
+    MESSAGE+="$file_block"
 done < "$MANIFEST"
-if [[ -n "$TELEGRAPH_URL" ]]; then BUTTONS="$(jq -cn --argjson a "$BUTTONS" --arg url "$TELEGRAPH_URL" '$a + [[{"text":"Flash Guide","url":$url}]]')"; fi
-BUTTONS="$(jq -cn --argjson a "$BUTTONS" '$a + [[{"text":"About Developer","url":"https://khaliq-repos.pages.dev/"}]]')"
-REPLY_MARKUP="$(jq -cn --argjson rows "$BUTTONS" '{inline_keyboard:$rows}')"
-MESSAGE+='\n\nRelease published successfully.'
+if [[ -n "$TELEGRAPH_URL" ]]; then jq -cn --arg url "$TELEGRAPH_URL" '[{text:"Flash Guide",url:$url}]' >> "$KEY_ROWS"; fi
+jq -cn '[{text:"About Developer",url:"https://khaliq-repos.pages.dev/"}]' >> "$KEY_ROWS"
+REPLY_MARKUP="$(jq -sc '{inline_keyboard:.}' "$KEY_ROWS")" || die 'Failed to build Telegram keyboard JSON.'
+# Validate once before sending so malformed JSON can never reach Telegram.
+printf '%s' "$REPLY_MARKUP" | jq -e '.inline_keyboard|type=="array"' >/dev/null || die 'Telegram keyboard JSON validation failed.'
 
-send_text(){ curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -F "chat_id=$CHAT_ID" --data-urlencode "text=$MESSAGE" -F 'parse_mode=HTML' --data-urlencode "reply_markup=$REPLY_MARKUP" >/dev/null; }
-send_photo(){ curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" -F "chat_id=$CHAT_ID" --data-urlencode "photo=$BANNER_URL" --data-urlencode "caption=$MESSAGE" -F 'parse_mode=HTML' --data-urlencode "reply_markup=$REPLY_MARKUP" >/dev/null; }
+MESSAGE+="\n\nRelease published successfully."
 
 if [[ -n "$BANNER_URL" ]]; then
-    if ! send_photo; then
-        warn 'Banner publish failed; sending release as text instead.'
-        send_text || die 'Telegram publish failed.'
+    if curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" \
+        --data-urlencode "chat_id=$CHAT_ID" \
+        --data-urlencode "photo=$BANNER_URL" \
+        --data-urlencode "caption=$MESSAGE" \
+        --data-urlencode 'parse_mode=HTML' \
+        --data-urlencode "reply_markup=$REPLY_MARKUP" >/dev/null; then
+        ok 'Telegram release published with banner.'
+    else
+        warn 'Banner publish failed; retrying as text message.'
+        curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+            --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "text=$MESSAGE" \
+            --data-urlencode 'parse_mode=HTML' --data-urlencode "reply_markup=$REPLY_MARKUP" >/dev/null || die 'Telegram publish failed.'
+        ok 'Telegram release published without banner.'
     fi
 else
-    send_text || die 'Telegram publish failed.'
+    curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+        --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "text=$MESSAGE" \
+        --data-urlencode 'parse_mode=HTML' --data-urlencode "reply_markup=$REPLY_MARKUP" >/dev/null || die 'Telegram publish failed.'
+    ok 'Telegram release published.'
 fi
-ok 'Release published successfully.'
