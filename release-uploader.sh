@@ -9,9 +9,19 @@ PATCHED="$TMP/release-uploader-patched.sh"
 
 curl --fail --silent --show-error --location "$CORE_URL" -o "$CORE"
 
-# Keep the uploader adaptive: never use a hard-coded Pixel codename list and
-# never use the build tree's display ID as the primary ROM/project detector.
+# Adaptive launcher patch. The core remains the single implementation of the
+# uploader; this wrapper only adds dynamic output/project detection.
 awk '
+index($0, "mapfile -t DEVICES < <(find \"$OUT\" -mindepth 1 -maxdepth 1 -type d -printf \"%f")") {
+  print "# Discover real build outputs dynamically. Do not maintain a hard-coded Pixel codename list."
+  print "mapfile -t DEVICES < <(find \"$OUT\" -mindepth 1 -maxdepth 1 -type d -print0 | while IFS= read -r -d \"\" d; do"
+  print "  # A valid product output normally has at least one build property, ROM package, or supported image."
+  print "  if find \"$d\" -maxdepth 2 -type f \\( -name build.prop -o -name prop.default -o -iname \"*.zip\" -o -iname \"boot*.img\" -o -iname \"vendor_boot*.img\" -o -iname \"dtbo*.img\" \\) -print -quit | grep -q .; then"
+  print "    printf \"%s\\n\" \"${d##*/}\""
+  print "  fi"
+  print "done | sort)"
+  next
+}
 index($0, "read -r -p \"Project name [${DISPLAY:-ROM}]: \" PROJECT") {
   print "# Project detection is based on the selected ROM filename and selected output codename."
   print "ROM_PROJECT_DEFAULT=\"${DISPLAY:-ROM}\""
@@ -21,7 +31,11 @@ index($0, "read -r -p \"Project name [${DISPLAY:-ROM}]: \" PROJECT") {
   print "  _rom_lower=\"${_rom_stem,,}\""
   print "  _codename_lower=\"${CODENAME,,}\""
   print "  # Remove the selected output codename wherever it appears in the ROM filename."
-  print "  _rom_stem=\"$(printf \"%s\" \"$_rom_stem\" | sed -E \"s/(^|[-_])${_codename_lower}($|[-_])/\\1\\2/Ig; s/[-_]+/ /g; s/[[:space:]]+/ /g; s/^ +| +$//g\")\""
+  print "  if [[ -n \"$_codename_lower\" ]]; then"
+  print "    _rom_stem=\"$(printf \"%s\" \"$_rom_stem\" | sed -E \"s/(^|[-_])${_codename_lower}($|[-_])/\\1\\2/Ig; s/[-_]+/ /g; s/[[:space:]]+/ /g; s/^ +| +$//g\")\""
+  print "  else"
+  print "    _rom_stem=\"$(printf \"%s\" \"$_rom_stem\" | sed -E 's/[-_]+/ /g;s/[[:space:]]+/ /g;s/^ +| +$//g')\""
+  print "  fi"
   print "  case \"$_rom_lower\" in"
   print "    *lineage*) ROM_PROJECT_DEFAULT=\"LineageOS\" ;;"
   print "    *axion*) ROM_PROJECT_DEFAULT=\"Axion AOSP\" ;;"
@@ -44,7 +58,7 @@ index($0, "read -r -p \"Project name [${DISPLAY:-ROM}]: \" PROJECT") {
   print "    *graphene*) ROM_PROJECT_DEFAULT=\"GrapheneOS\" ;;"
   print "    *calyx*) ROM_PROJECT_DEFAULT=\"CalyxOS\" ;;"
   print "    *)"
-  print "      # Unknown ROM: use the cleaned selected filename, not build.prop."
+  print "      # Unknown ROM: use the cleaned selected filename, never build.prop."
   print "      [[ -n \"$_rom_stem\" ]] && ROM_PROJECT_DEFAULT=\"$_rom_stem\""
   print "      ;;"
   print "  esac"
