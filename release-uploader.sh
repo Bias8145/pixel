@@ -11,10 +11,12 @@ for x in bash curl jq find sed awk sha256sum md5sum stat date mktemp sort tr hea
 SECRETS_FILE="${PIXEL_UPLOADER_SECRETS:-$HOME/.config/pixel-uploader/secrets.env}"
 if [[ -z "${BOT_TOKEN:-}" || -z "${CHAT_ID:-}" || -z "${PIXELDRAIN_API_KEY:-}" || -z "${TELEGRAPH_TOKEN:-}" ]]; then
   if [[ -f "$SECRETS_FILE" ]]; then
-    [[ "$(stat -c '%a' "$SECRETS_FILE" 2>/dev/null || stat -f '%Lp' "$SECRETS_FILE")" == 600 ]] || die "Secrets file must have mode 600: $SECRETS_FILE"
+    mode="$(stat -c '%a' "$SECRETS_FILE" 2>/dev/null || stat -f '%Lp' "$SECRETS_FILE")"
+    [[ "$mode" == 600 ]] || die "Secrets file must have mode 600: $SECRETS_FILE"
     source "$SECRETS_FILE"
   elif [[ -f "$HOME/.build_env" ]]; then
-    [[ "$(stat -c '%a' "$HOME/.build_env" 2>/dev/null || stat -f '%Lp' "$HOME/.build_env")" == 600 ]] || die "~/.build_env must have mode 600"
+    mode="$(stat -c '%a' "$HOME/.build_env" 2>/dev/null || stat -f '%Lp' "$HOME/.build_env")"
+    [[ "$mode" == 600 ]] || die "~/.build_env must have mode 600"
     source "$HOME/.build_env"
   fi
 fi
@@ -31,7 +33,7 @@ choose(){
   local max="$1" prompt="$2" v
   while :; do
     read -r -p "$prompt" v || exit 1
-    if [[ "$v" =~ ^[0-9]+$ ]] && ((v>=1&&v<=max)); then printf '%s' "$v"; return; fi
+    if [[ "$v" =~ ^[0-9]+$ ]] && ((v>=1 && v<=max)); then printf '%s' "$v"; return; fi
     warn "Enter 1-$max."
   done
 }
@@ -48,12 +50,11 @@ prop(){
 
 safe(){ printf '%s' "$1" | sed 's/[^A-Za-z0-9._-]/_/g;s/_\+/_/g;s/^_//;s/_$//'; }
 clean(){ printf '%s' "$1" | tr '\r\n' '  ' | sed -E 's/[[:space:]]+/ /g;s/^ +//;s/ +$//'; }
-html(){ printf '%s' "$1" | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g'; }
+html(){ printf '%s' "$1" | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g;s/"/\&quot;/g'; }
+size_of(){ awk -v b="$1" 'BEGIN{if(b>=1073741824)printf "%.2f GB",b/1073741824;else if(b>=1048576)printf "%.1f MB",b/1048576;else if(b>=1024)printf "%.1f KB",b/1024;else printf "%d B",b}'; }
 
 file_type(){
-  local b l
-  b="$(basename "$1")"
-  l="${b,,}"
+  local l="$(basename "$1")"; l="${l,,}"
   case "$l" in
     *.zip|*.ozip|*.zip.md5) echo ROM ;;
     boot.img|boot[-_]*.img) echo BOOT ;;
@@ -72,66 +73,42 @@ file_type(){
 
 part_of(){
   case "$(file_type "$1")" in
-    BOOT) echo boot ;;
-    DTBO) echo dtbo ;;
-    "VENDOR BOOT") echo vendor_boot ;;
-    "VENDOR KERNEL BOOT") echo vendor_kernel_boot ;;
-    "INIT BOOT") echo init_boot ;;
-    VBMETA) echo vbmeta ;;
-    "VBMETA SYSTEM") echo vbmeta_system ;;
-    "VBMETA VENDOR") echo vbmeta_vendor ;;
-    RECOVERY) echo recovery ;;
-    *) echo ;;
+    BOOT) echo boot;; DTBO) echo dtbo;; "VENDOR BOOT") echo vendor_boot;;
+    "VENDOR KERNEL BOOT") echo vendor_kernel_boot;; "INIT BOOT") echo init_boot;;
+    VBMETA) echo vbmeta;; "VBMETA SYSTEM") echo vbmeta_system;; "VBMETA VENDOR") echo vbmeta_vendor;;
+    RECOVERY) echo recovery;; *) echo;;
   esac
-}
-
-size_of(){
-  awk -v b="$1" 'BEGIN{if(b>=1073741824)printf "%.2f GB",b/1073741824;else if(b>=1048576)printf "%.1f MB",b/1048576;else if(b>=1024)printf "%.1f KB",b/1024;else printf "%d B",b}'
 }
 
 mapfile -t DEVICES < <(find "$OUT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
 ((${#DEVICES[@]})) || die "No device output found."
-echo
-echo "Build outputs:"
+echo; echo "Build outputs:"
 for ((i=0;i<${#DEVICES[@]};i++)); do printf '  [%d] %s\n' "$((i+1))" "${DEVICES[$i]}"; done
 n="$(choose "${#DEVICES[@]}" 'Select device: ')"
-CODENAME="${DEVICES[$((n-1))]}"
-DOUT="$OUT/$CODENAME"
+CODENAME="${DEVICES[$((n-1))]}"; DOUT="$OUT/$CODENAME"
+ANDROID="$(prop ro.build.version.release)"; PATCH="$(prop ro.build.version.security_patch)"; BUILD="$(prop ro.build.id)"; DISPLAY="$(prop ro.build.display.id)"
+DETECTED="$(prop ro.product.model)"; [[ "$DETECTED" == Unknown ]] && DETECTED="$(prop ro.product.name)"; [[ "$DETECTED" == Unknown ]] && DETECTED="$CODENAME"
+printf 'Device: %s | Android: %s | Build: %s | SPL: %s\n' "$CODENAME" "$ANDROID" "$BUILD" "$PATCH"
 
-ANDROID="$(prop ro.build.version.release)"
-PATCH="$(prop ro.build.version.security_patch)"
-BUILD="$(prop ro.build.id)"
-DISPLAY="$(prop ro.build.display.id)"
-DETECTED="$(prop ro.product.model)"
-[[ "$DETECTED" == Unknown ]] && DETECTED="$(prop ro.product.name)"
-[[ "$DETECTED" == Unknown ]] && DETECTED="$CODENAME"
-msg "Device: $CODENAME | Android: $ANDROID | Build: $BUILD | SPL: $PATCH"
+echo; echo 'Upload:'; echo '  [1] ROM'; echo '  [2] Images'; echo '  [3] ROM + Images'
+MODE="$(choose 3 'Select: ')"; FILES=()
 
-echo
-echo "Upload:"
-echo '  [1] ROM'
-echo '  [2] Images'
-echo '  [3] ROM + Images'
-MODE="$(choose 3 'Select: ')"
-FILES=()
-
-if ((MODE==1||MODE==3)); then
+if ((MODE==1 || MODE==3)); then
   mapfile -t ROMS < <(find "$DOUT" -maxdepth 1 -type f \( -iname '*.zip' -o -iname '*.ozip' -o -iname '*.zip.md5' \) | sort)
-  ((${#ROMS[@]})) || die "No ROM package found."
-  echo; echo "ROM packages:"
+  ((${#ROMS[@]})) || die 'No ROM package found.'
+  echo; echo 'ROM packages:'
   for ((i=0;i<${#ROMS[@]};i++)); do printf '  [%d] %s\n' "$((i+1))" "$(basename "${ROMS[$i]}")"; done
-  n="$(choose "${#ROMS[@]}" 'Select ROM: ')"
-  FILES+=("${ROMS[$((n-1))]}")
+  n="$(choose "${#ROMS[@]}" 'Select ROM: ')"; FILES+=("${ROMS[$((n-1))]}")
 fi
 
-if ((MODE==2||MODE==3)); then
+if ((MODE==2 || MODE==3)); then
   IMGS=()
   while IFS= read -r -d '' f; do
     b="$(basename "$f")"
     [[ "${b,,}" =~ ^(boot|init_boot|dtbo|vendor_boot|vendor_kernel_boot|vbmeta|vbmeta_system|vbmeta_vendor|recovery)([-_].*)?\.img$ ]] && IMGS+=("$f")
   done < <(find "$DOUT" -maxdepth 1 -type f -iname '*.img' -print0 | sort -z)
-  ((${#IMGS[@]})) || die "No supported images found."
-  echo; echo "Images:"
+  ((${#IMGS[@]})) || die 'No supported images found.'
+  echo; echo 'Images:'
   for ((i=0;i<${#IMGS[@]};i++)); do printf '  [%d] %s\n' "$((i+1))" "$(basename "${IMGS[$i]}")"; done
   while :; do
     read -r -p 'Select images (e.g. 1 3 4): ' raw || exit 1
@@ -139,15 +116,11 @@ if ((MODE==2||MODE==3)); then
     [[ "$norm" =~ ^[0-9]+( [0-9]+)*$ ]] || { warn 'Use space-separated numbers, for example: 1 2 6'; continue; }
     sel=(); while read -r x; do sel+=("$x"); done < <(printf '%s\n' "$norm" | awk '{for(i=1;i<=NF;i++)print $i}')
     good=1; seen=' '
-    for x in "${sel[@]}"; do
-      ((x>=1&&x<=${#IMGS[@]})) || good=0
-      [[ "$seen" == *" $x "* ]] && good=0
-      seen+="$x "
-    done
+    for x in "${sel[@]}"; do ((x>=1&&x<=${#IMGS[@]})) || good=0; [[ "$seen" == *" $x "* ]] && good=0; seen+="$x "; done
     ((good)) && break
     warn "Enter valid image numbers from 1-${#IMGS[@]}, separated by spaces."
   done
-  echo "Selected images:"
+  echo 'Selected images:'
   for x in "${sel[@]}"; do FILES+=("${IMGS[$((x-1))]}"); printf '  - %s\n' "$(basename "${IMGS[$((x-1))]}")"; done
 fi
 
@@ -157,238 +130,140 @@ read -r -p "Device name [${DETECTED}]: " DEVICE_NAME || exit 1; DEVICE_NAME="${D
 read -r -p 'Banner URL [optional]: ' BANNER_URL || exit 1
 [[ -z "$BANNER_URL" || "$BANNER_URL" =~ ^https?:// ]] || die 'Banner URL must start with http:// or https://'
 
-echo; echo "Build Variant:"
-echo '  [1] GApps Full'
-echo '  [2] GApps Core'
-echo '  [3] GApps Pico'
-echo '  [4] Vanilla (No Google)'
-echo '  [5] Vanilla + microG'
+echo; echo 'Build Variant:'; echo '  [1] GApps Full'; echo '  [2] GApps Core'; echo '  [3] GApps Pico'; echo '  [4] Vanilla (No Google)'; echo '  [5] Vanilla + microG'
 n="$(choose 5 'Select: ')"
 case "$n" in
-  1) VARIANT='GAPPS'; GTAG='GAPPS-FULL'; GS='GApps Full included'; NOTE='Google Apps (Full) included'; GM=gapps ;;
-  2) VARIANT='GAPPS'; GTAG='GAPPS-CORE'; GS='GApps Core included'; NOTE='Google Apps (Core) included'; GM=gapps ;;
-  3) VARIANT='GAPPS'; GTAG='GAPPS-PICO'; GS='GApps Pico included'; NOTE='Google Apps (Pico) included'; GM=gapps ;;
-  4) VARIANT='VANILLA'; GTAG='NO-GMS'; GS='No Google services'; NOTE='Vanilla build without Google services'; GM=none ;;
-  5) VARIANT='VANILLA'; GTAG='MICROG'; GS='microG included'; NOTE='Vanilla build with microG services'; GM=microg ;;
+  1) VARIANT=GAPPS; GTAG=GAPPS-FULL; GS='GApps Full included'; NOTE='Google Apps (Full) included';;
+  2) VARIANT=GAPPS; GTAG=GAPPS-CORE; GS='GApps Core included'; NOTE='Google Apps (Core) included';;
+  3) VARIANT=GAPPS; GTAG=GAPPS-PICO; GS='GApps Pico included'; NOTE='Google Apps (Pico) included';;
+  4) VARIANT=VANILLA; GTAG=NO-GMS; GS='No Google services'; NOTE='Vanilla build without Google services';;
+  5) VARIANT=VANILLA; GTAG=MICROG; GS='microG included'; NOTE='Vanilla build with microG services';;
 esac
 
-echo; echo "Rooting method:"
-echo '  [1] None'; echo '  [2] KSU'; echo '  [3] KSU Next'; echo '  [4] KSU Legacy'; echo '  [5] ReSukiSU'; echo '  [6] SukiSU'
+echo; echo 'Rooting method:'; echo '  [1] None'; echo '  [2] KSU'; echo '  [3] KSU Next'; echo '  [4] KSU Legacy'; echo '  [5] ReSukiSU'; echo '  [6] SukiSU'
 n="$(choose 6 'Select: ')"
 case "$n" in
-  1) ROOTM=None; RTAG='' ;;
-  2) ROOTM=KSU; RTAG=KSU ;;
-  3) ROOTM='KSU Next'; RTAG=KSU-Next ;;
-  4) ROOTM='KSU Legacy'; RTAG=KSU-Legacy ;;
-  5) ROOTM=ReSukiSU; RTAG=ReSukiSU ;;
-  6) ROOTM=SukiSU; RTAG=SukiSU ;;
+  1) ROOTM=None; RTAG=;; 2) ROOTM=KSU; RTAG=KSU;; 3) ROOTM='KSU Next'; RTAG=KSU-Next;; 4) ROOTM='KSU Legacy'; RTAG=KSU-Legacy;; 5) ROOTM=ReSukiSU; RTAG=ReSukiSU;; 6) ROOTM=SukiSU; RTAG=SukiSU;;
 esac
 ROOT_VERSION=''
-if [[ "$ROOTM" != None ]]; then
-  read -r -p 'Root implementation/version [optional]: ' ROOT_VERSION || exit 1
-  ROOT_VERSION="$(clean "$ROOT_VERSION")"
-fi
-
+if [[ "$ROOTM" != None ]]; then read -r -p 'Root implementation/version [optional]: ' ROOT_VERSION || exit 1; ROOT_VERSION="$(clean "$ROOT_VERSION")"; fi
 SUSFS=Disabled; SUSFS_VERSION=''
 if [[ "$ROOTM" != None ]]; then
-  echo; echo "SUSFS:"; echo '  [1] Without SUSFS'; echo '  [2] With SUSFS'
-  n="$(choose 2 'Select: ')"
-  if [[ "$n" == 2 ]]; then
-    SUSFS=Enabled
-    read -r -p 'SUSFS version [optional]: ' SUSFS_VERSION || exit 1
-    SUSFS_VERSION="$(clean "$SUSFS_VERSION")"
-  fi
+  echo; echo 'SUSFS:'; echo '  [1] Without SUSFS'; echo '  [2] With SUSFS'; n="$(choose 2 'Select: ')"
+  if [[ "$n" == 2 ]]; then SUSFS=Enabled; read -r -p 'SUSFS version [optional]: ' SUSFS_VERSION || exit 1; SUSFS_VERSION="$(clean "$SUSFS_VERSION")"; fi
 fi
 
-DATE="$(date +%Y-%m-%d)"
-DDATE="$(date +%d-%m-%Y)"
-RELEASE_ID="$(safe "$PROJECT")_${CODENAME}_${VARIANT}_${GTAG}_$(safe "$ROOTM")_$(safe "$SUSFS")_$DATE"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-MANIFEST="$TMP/files.tsv"
-: > "$MANIFEST"
+DATE="$(date +%Y-%m-%d)"; DDATE="$(date +%d-%m-%Y)"
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+MANIFEST="$TMP/files.tsv"; : > "$MANIFEST"
 
-curl --fail --silent --show-error --max-time 20 -u ":$PIXELDRAIN_API_KEY" https://pixeldrain.com/api/user/files >/dev/null || die "Pixeldrain authentication failed."
-curl --fail --silent --show-error --max-time 20 "https://api.telegram.org/bot$BOT_TOKEN/getMe" | jq -e '.ok==true' >/dev/null || die "Telegram bot authentication failed."
-curl --fail --silent --show-error --max-time 20 -X POST https://api.telegra.ph/getPageList -d "access_token=$TELEGRAPH_TOKEN" | jq -e '.ok==true' >/dev/null || die "Telegraph authentication failed."
-ok "Pixeldrain authentication OK"; ok "Telegram bot authentication OK"; ok "Telegraph authentication OK"
+curl --fail --silent --show-error --max-time 20 -u ":$PIXELDRAIN_API_KEY" https://pixeldrain.com/api/user/files >/dev/null || die 'Pixeldrain authentication failed.'
+curl --fail --silent --show-error --max-time 20 "https://api.telegram.org/bot$BOT_TOKEN/getMe" | jq -e '.ok==true' >/dev/null || die 'Telegram bot authentication failed.'
+curl --fail --silent --show-error --max-time 20 -X POST https://api.telegra.ph/getPageList -d "access_token=$TELEGRAPH_TOKEN" | jq -e '.ok==true' >/dev/null || die 'Telegraph authentication failed.'
+ok 'Pixeldrain authentication OK'; ok 'Telegram bot authentication OK'; ok 'Telegraph authentication OK'
 
 upload(){
   local f="$1" name="$2" r id
   r="$(curl --fail-with-body -sS --max-time 3600 -u ":$PIXELDRAIN_API_KEY" -F "file=@$f;filename=$name" https://pixeldrain.com/api/file)" || return 1
-  id="$(jq -r '.id // empty' <<< "$r")"
-  [[ -n "$id" ]] || return 1
-  printf 'https://pixeldrain.com/u/%s' "$id"
+  id="$(jq -r '.id // empty' <<< "$r")"; [[ -n "$id" ]] || return 1; printf 'https://pixeldrain.com/u/%s' "$id"
 }
 
-echo; echo "Uploading selected files to Pixeldrain..."
-OKN=0
+echo; echo 'Uploading selected files to Pixeldrain...'; OKN=0
 for f in "${FILES[@]}"; do
   [[ -f "$f" ]] || continue
   base="$(basename "$f")"; ext="${base##*.}"; stem="${base%.*}"
-  if [[ "$base" == *.zip.md5 ]]; then name="${base%.zip.md5}_${RELEASE_ID}.zip.md5"; else name="${stem}_${RELEASE_ID}.${ext}"; fi
-  sz="$(stat -c %s "$f" 2>/dev/null || stat -f %z "$f")"
-  md5="$(md5sum "$f" | awk '{print $1}')"
-  sha="$(sha256sum "$f" | awk '{print $1}')"
-  ty="$(file_type "$f")"
+  name="${stem}_$(safe "$CODENAME")_${DATE}.${ext}"
+  sz="$(stat -c %s "$f" 2>/dev/null || stat -f %z "$f")"; md5="$(md5sum "$f" | awk '{print $1}')"; sha="$(sha256sum "$f" | awk '{print $1}')"; ty="$(file_type "$f")"
   url="$(upload "$f" "$name")" || { warn "Pixeldrain upload failed: $base"; continue; }
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "$name" "$url" "$sz" "$md5" "$sha" "$ty" >> "$MANIFEST"
-  ok "FILE: $base uploaded"
-  OKN=$((OKN+1))
+  ok "FILE: $base uploaded"; OKN=$((OKN+1))
 done
-((OKN>0)) || die "No files were uploaded to Pixeldrain; Telegram publish cancelled."
+((OKN>0)) || die 'No files were uploaded to Pixeldrain.'
 
-TITLE="$(clean "$PROJECT")"; DEV="$(clean "$DEVICE_NAME")"; AUTH="$(clean "$AUTHOR")"; A="$(clean "$ANDROID")"; P="$(clean "$PATCH")"; D="$(clean "$DDATE")"
-TAG="[$TITLE]"
-[[ "$DISPLAY" != Unknown ]] && TAG+=" [$(clean "$DISPLAY")]"
-[[ "$BUILD" != Unknown ]] && TAG+=" [$(clean "$BUILD")]"
-TAG+=" [Android $A] [$VARIANT] [$GTAG]"
-[[ -n "$RTAG" ]] && TAG+=" [$RTAG]"
-[[ -n "$ROOT_VERSION" ]] && TAG+=" [$(clean "$ROOT_VERSION")]"
-[[ "$SUSFS" == Enabled ]] && TAG+=' [SUSFS]'
-[[ -n "$SUSFS_VERSION" ]] && TAG+=" [$(clean "$SUSFS_VERSION")]"
-TAG+=" [$D]"
-
-ROWS=''; CMDS=''; ROM_NAME=''; BUTTONS=()
-while IFS=$'\t' read -r orig name url sz md5 sha ty; do
-  [[ -n "$url" ]] || continue
-  ROWS+="▫️ $ty — $(size_of "$sz") | MD5: ${md5:0:8} | SHA: ${sha:0:8}"$'\n'
-  part="$(part_of "$orig")"
-  [[ -n "$part" ]] && CMDS+="fastboot flash $part $(basename "$orig")"$'\n'
-  [[ "$ty" == ROM ]] && ROM_NAME="$name"
-  BUTTONS+=("$ty"$'\t'"$url")
+MAIN_URLS=(); FILE_TYPES=(); ROWS=''; GUIDE_LINES=()
+while IFS=$'\t' read -r f name url sz md5 sha ty; do
+  MAIN_URLS+=("$url"); FILE_TYPES+=("$ty")
+  ROWS+="<b>$(html "$ty")</b> — $(size_of "$sz") | SHA256: <code>${sha:0:8}</code>\n"
+  p="$(part_of "$f")"; [[ -n "$p" ]] && GUIDE_LINES+=("fastboot flash $p $(basename "$f")")
 done < "$MANIFEST"
-[[ -n "$ROM_NAME" ]] || ROM_NAME='<selected-ROM>.zip'
 
-NOTES="• $NOTE"$'\n'
-if [[ "$ROOTM" != None ]]; then
-  if [[ -n "$ROOT_VERSION" ]]; then NOTES+="• $ROOTM support included — $ROOT_VERSION"$'\n'; else NOTES+="• $ROOTM support included"$'\n'; fi
-fi
-if [[ "$SUSFS" == Enabled ]]; then
-  if [[ -n "$SUSFS_VERSION" ]]; then NOTES+="• SUSFS enabled — $SUSFS_VERSION"$'\n'; else NOTES+='• SUSFS enabled'$'\n'; fi
-fi
-NOTES+='• Advanced users recommended'
+ROOT_TAG="$RTAG"; [[ -n "$ROOT_VERSION" ]] && ROOT_TAG+="-$ROOT_VERSION"
+SUS_TAG=''; [[ "$SUSFS" == Enabled ]] && SUS_TAG='SUSFS'; [[ -n "$SUSFS_VERSION" && "$SUSFS" == Enabled ]] && SUS_TAG+="-$SUSFS_VERSION"
+TAG="[$PROJECT] [$BUILD] [Android $ANDROID] [$GTAG]"; [[ -n "$ROOT_TAG" ]] && TAG+=" [$ROOT_TAG]"; [[ -n "$SUS_TAG" ]] && TAG+=" [$SUS_TAG]"; TAG+=" [$DDATE]"
 
-GUIDE="$(printf '%s\n' \
-  "$TITLE — Flash Guide" \
-  "Device: $DEV ($CODENAME)" \
-  "Android: $A" \
-  "" \
-  "Terms of Use" \
-  "Flashing is performed at your own risk. The installer is responsible for selecting the correct device, firmware, recovery, ROM and image files and for following the installation procedure correctly. The developer/maintainer is not responsible for failures, data loss, bootloops, or device damage caused by incorrect installation, incompatible files, unsupported modifications, or user error." \
-  "" \
-  "Before you start" \
-  "1. Back up all important data." \
-  "2. Make sure the bootloader is unlocked and the device matches $CODENAME exactly." \
-  "3. Install current Android platform-tools (adb and fastboot)." \
-  "4. Use the firmware/base recommended by the ROM maintainer for this build." \
-  "5. Do not continue if any command fails unexpectedly." \
-  "" \
-  "Fastboot" \
-  "1. Reboot to bootloader:" \
-  "   adb -d reboot bootloader" \
-  "2. Verify:" \
-  "   fastboot devices" \
-  "3. Flash only the selected image files:" \
-  "$CMDS" \
-  "4. Reboot to recovery:" \
-  "   fastboot reboot recovery" \
-  "" \
-  "Recovery / ROM installation" \
-  "1. In recovery, use Factory Reset -> Format data / factory reset for a clean installation when required by the ROM." \
-  "2. Return to the recovery main menu." \
-  "3. Select Apply Update -> Apply from ADB." \
-  "4. On the computer:" \
-  "   adb -d sideload $ROM_NAME" \
-  "5. If adb appears to stop around 47% while recovery reports success, this can be normal for ADB sideload." \
-  "6. Do not install another GApps package on this build unless the ROM documentation explicitly requires it. This build status is: $GS." \
-  "7. Reboot to system after installation completes." \
-  "" \
-  "Selected files" \
-  "$ROWS")"
+NOTES="• $NOTE"
+[[ "$ROOTM" != None ]] && NOTES+="\n• $ROOTM support included$( [[ -n "$ROOT_VERSION" ]] && printf ' — %s' "$(html "$ROOT_VERSION")" )"
+[[ "$SUSFS" == Enabled ]] && NOTES+="\n• SUSFS enabled$( [[ -n "$SUSFS_VERSION" ]] && printf ' — %s' "$(html "$SUSFS_VERSION")" )"
+[[ "$ROOTM" == None ]] && NOTES+="\n• No root implementation included"
+NOTES+="\n• Installation guide generated for the selected files"
 
-TCONTENT="$(jq -nc --arg t "$GUIDE" '[{"tag":"pre","children":[$t]}]')"
-TRES="$(curl --fail --silent --show-error -X POST https://api.telegra.ph/createPage -d "access_token=$TELEGRAPH_TOKEN" --data-urlencode "title=Flash Guide - $PROJECT - $CODENAME" --data-urlencode 'author_name=Bias8145' --data-urlencode 'author_url=https://khaliq-repos.pages.dev/' --data-urlencode "content=$TCONTENT")" || TRES=""
-GUIDE_URL="$(jq -r '.result.url // empty' <<< "$TRES" 2>/dev/null || true)"
-ABOUT='https://khaliq-repos.pages.dev/'
+GUIDE_TEXT="Flash Guide — $DEVICE_NAME
 
-button_json(){ jq -nc --arg t "$1" --arg u "$2" '[{"text":$t,"url":$u}]'; }
-KB='{"inline_keyboard":['; NEED_COMMA=0
-append_row(){ local row="$1"; ((NEED_COMMA)) && KB+=","; KB+="$row"; NEED_COMMA=1; }
-if ((${#BUTTONS[@]}==4)); then
-  IFS=$'\t' read -r a au <<< "${BUTTONS[0]}"; IFS=$'\t' read -r b bu <<< "${BUTTONS[1]}"
-  IFS=$'\t' read -r c cu <<< "${BUTTONS[2]}"; IFS=$'\t' read -r d du <<< "${BUTTONS[3]}"
-  append_row "$(jq -nc --arg a "$a" --arg au "$au" --arg b "$b" --arg bu "$bu" '[{"text":$a,"url":$au},{"text":$b,"url":$bu}]')"
-  append_row "$(jq -nc --arg a "$c" --arg au "$cu" --arg b "$d" --arg bu "$du" '[{"text":$a,"url":$au},{"text":$b,"url":$bu}]')"
-elif ((${#BUTTONS[@]}==2)); then
-  IFS=$'\t' read -r a au <<< "${BUTTONS[0]}"; IFS=$'\t' read -r b bu <<< "${BUTTONS[1]}"
-  append_row "$(jq -nc --arg a "$a" --arg au "$au" --arg b "$b" --arg bu "$bu" '[{"text":$a,"url":$au},{"text":$b,"url":$bu}]')"
-else
-  pending=''; pending_url=''; count=0
-  for item in "${BUTTONS[@]}"; do
-    IFS=$'\t' read -r label url <<< "$item"
-    if ((count%2==0)); then pending="$label"; pending_url="$url"; else append_row "$(jq -nc --arg a "$pending" --arg au "$pending_url" --arg b "$label" --arg bu "$url" '[{"text":$a,"url":$au},{"text":$b,"url":$bu}]')"; fi
-    count=$((count+1))
-  done
-  if ((count%2==1)); then append_row "$(button_json "$pending" "$pending_url")"; fi
-fi
-if [[ -n "$GUIDE_URL" ]]; then
-  append_row "$(jq -nc --arg g "$GUIDE_URL" --arg a "$ABOUT" '[{"text":"Flash Guide","url":$g},{"text":"About Developer","url":$a}]')"
-else
-  append_row "$(button_json 'About Developer' "$ABOUT")"
-fi
-KB+=']}'
-jq -e . >/dev/null <<< "$KB" || die 'Internal error: invalid Telegram keyboard JSON.'
+Before flashing, verify the device codename and files. Keep a backup of important data.
 
-ETITLE="$(html "$TITLE")"; EDEV="$(html "$DEV")"; EAUTH="$(html "$AUTH")"; EA="$(html "$A")"; EP="$(html "$P")"; EV="$(html "$VARIANT")"; EG="$(html "$GS")"; ED="$(html "$D")"; ETAG="$(html "$TAG")"; ENOTES="$(html "$NOTES")"
-MESSAGE="$(cat <<MSG
-<b>New Release: $ETITLE</b>
+Fastboot:
+1. Reboot to bootloader: adb reboot bootloader
+"
+if ((${#GUIDE_LINES[@]})); then GUIDE_TEXT+="2. Flash only the selected images:\n"; for line in "${GUIDE_LINES[@]}"; do GUIDE_TEXT+="$line\n"; done; fi
+if [[ "$MODE" == 1 || "$MODE" == 3 ]]; then GUIDE_TEXT+="\nRecovery / ROM installation:\n- Reboot to recovery after image flashing.\n- Use Apply Update / ADB Sideload and sideload the selected ROM package.\n- Reboot only after installation completes.\n"; fi
+GUIDE_TEXT+="\nTerms of Use and Risk Notice:\nInstallation is performed at your own risk. The developer is not responsible for bootloops, data loss, device damage, failed flashing, or other consequences caused by incorrect installation, incompatible files, or failure to follow the guide. Always verify the device and build before flashing."
+GUIDE_JSON="$(jq -n --arg t "$GUIDE_TEXT" '{tag:"pre",children:[$t]}' | jq -c '[.]')"
+GUIDE_RES="$(curl --fail --silent --show-error -X POST https://api.telegra.ph/createPage -d "access_token=$TELEGRAPH_TOKEN" --data-urlencode "title=Flash Guide - $DEVICE_NAME - $DDATE" --data-urlencode 'author_name=Bias8145' --data-urlencode 'author_url=https://khaliq-repos.pages.dev/' --data-urlencode "content=$GUIDE_JSON")" || die 'Telegraph guide creation failed.'
+GUIDE_URL="$(jq -r '.result.url // empty' <<< "$GUIDE_RES")"; [[ -n "$GUIDE_URL" ]] || die "Telegraph guide creation failed: $(printf '%s' "$GUIDE_RES" | head -c 300)"
 
-<b>Device:</b> $EDEV
-<b>Project:</b> $ETITLE
-<b>Android Version:</b> $EA
-<b>Security Patch:</b> $EP
-<b>Build Variant:</b> $EV
-<b>Google Services:</b> $EG
-<b>Release Date:</b> $ED
-<b>Maintainer:</b> $EAUTH
+PROJECT_H="$(html "$PROJECT")"; DEVICE_H="$(html "$DEVICE_NAME")"; AUTHOR_H="$(html "$AUTHOR")"; BUILD_H="$(html "$BUILD")"; ANDROID_H="$(html "$ANDROID")"; PATCH_H="$(html "$PATCH")"; GS_H="$(html "$GS")"; TAG_H="$(html "$TAG")"; NOTES_H="$(printf '%s' "$NOTES" | sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g')"
+MESSAGE="<b>New Release: $PROJECT_H for $DEVICE_H</b>
 
-<b>Tag:</b> $ETAG
+<b>Device:</b> $CODENAME
+<b>Project:</b> $PROJECT_H
+<b>Android Version:</b> $ANDROID_H
+<b>Security Patch:</b> $PATCH_H
+<b>Build Variant:</b> $GTAG
+<b>Google Services:</b> $GS_H
+<b>Release Date:</b> $DDATE
+<b>Maintainer:</b> $AUTHOR_H
+
+<b>Tag:</b> $TAG_H
 
 <b>Release Notes:</b>
-<blockquote>$ENOTES</blockquote>
+<blockquote>$NOTES_H</blockquote>
 
 <b>Files Size Information:</b>
-$ROWS
-Click the buttons below to download the files
-MSG
-)"
-printf '%s\n' "$MESSAGE" > "$TMP/message.html"
+$ROWS"
 
-echo; echo 'Publishing to Telegram...'
-RES=''; SENT_BANNER=0
+# Telegram inline keyboard: two columns, preserving actual uploaded file type.
+KB='{"inline_keyboard":['
+for ((i=0;i<${#MAIN_URLS[@]};i+=2)); do
+  ((i>0)) && KB+=','
+  KB+='['
+  t="${FILE_TYPES[$i]}"; u="${MAIN_URLS[$i]}"; KB+="{\"text\":\"$(printf '%s' "$t" | sed 's/"/\\"/g')\",\"url\":\"$u\"}"
+  if ((i+1<${#MAIN_URLS[@]})); then t="${FILE_TYPES[$((i+1))]}"; u="${MAIN_URLS[$((i+1))]}"; KB+=",{\"text\":\"$(printf '%s' "$t" | sed 's/"/\\"/g')\",\"url\":\"$u\"}"; fi
+  KB+=']'
+done
+KB+=",[{\"text\":\"Flash Guide\",\"url\":\"$GUIDE_URL\"},{\"text\":\"About Developer\",\"url\":\"https://khaliq-repos.pages.dev/\"}]]}"
+printf '%s' "$KB" | jq -e . >/dev/null || die 'Generated Telegram keyboard JSON is invalid.'
+
+# Banner is downloaded first so Telegram receives a real image file, not a webpage/redirect.
+# The publish message itself intentionally contains no Terms of Use; those remain in Flash Guide.
+echo; echo 'Publishing to Telegram...'; RES=''; SENT_BANNER=0
 if [[ -n "$BANNER_URL" ]]; then
-  RES="$(curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" -d "chat_id=$CHAT_ID" --data-urlencode "photo=$BANNER_URL" --data-urlencode "caption=$MESSAGE" -d 'parse_mode=HTML' --data-urlencode "reply_markup=$KB")" || RES=''
-  if jq -e '.ok==true' <<< "$RES" >/dev/null 2>&1; then SENT_BANNER=1; fi
-  if ((SENT_BANNER==0)); then
-    BANNER="$TMP/banner"
-    if curl -L --fail --silent --show-error --max-time 90 -o "$BANNER" "$BANNER_URL"; then
-      RES="$(curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" -F "chat_id=$CHAT_ID" -F "photo=@$BANNER" --form-string "caption=$MESSAGE" -F 'parse_mode=HTML' --form-string "reply_markup=$KB")" || RES=''
-      if jq -e '.ok==true' <<< "$RES" >/dev/null 2>&1; then SENT_BANNER=1; fi
-    fi
+  BANNER="$TMP/banner"
+  if curl -L --fail --silent --show-error --max-time 90 -A 'Mozilla/5.0' -o "$BANNER" "$BANNER_URL" && [[ -s "$BANNER" ]] && file "$BANNER" | grep -Eqi 'image|jpeg|png|webp|gif'; then
+    RES="$(curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" -F "chat_id=$CHAT_ID" -F "photo=@$BANNER" --form-string "caption=$MESSAGE" -F 'parse_mode=HTML' --form-string "reply_markup=$KB")" || RES=''
+    jq -e '.ok==true' <<< "$RES" >/dev/null 2>&1 && SENT_BANNER=1
+  else
+    warn 'Banner URL could not be downloaded as an image; publishing without banner.'
   fi
 fi
 
 if ((SENT_BANNER==0)); then
   RES="$(curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -d "chat_id=$CHAT_ID" --data-urlencode "text=$MESSAGE" -d 'parse_mode=HTML' --data-urlencode "reply_markup=$KB")" || RES=''
 fi
-
 if ((SENT_BANNER==1)) && ((${#MESSAGE}>1024)); then
   RES2="$(curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -d "chat_id=$CHAT_ID" --data-urlencode "text=$MESSAGE" -d 'parse_mode=HTML' --data-urlencode "reply_markup=$KB")" || RES2=''
-  jq -e '.ok==true' <<< "$RES2" >/dev/null 2>&1 || { warn "Telegram detail message failed: $(printf '%s' "$RES2" | head -c 500)"; exit 1; }
+  jq -e '.ok==true' <<< "$RES2" >/dev/null 2>&1 || die "Telegram detail message failed: $(printf '%s' "$RES2" | head -c 300)"
 fi
-
-jq -e '.ok==true' <<< "$RES" >/dev/null 2>&1 || { warn "Telegram publish failed: $(printf '%s' "$RES" | head -c 500)"; exit 1; }
+jq -e '.ok==true' <<< "$RES" >/dev/null 2>&1 || die "Telegram publish failed: $(printf '%s' "$RES" | head -c 300)"
 ok 'Telegram publish complete'
 [[ -n "$GUIDE_URL" ]] && ok "Telegraph flash guide: $GUIDE_URL"
 echo 'Upload complete.'
