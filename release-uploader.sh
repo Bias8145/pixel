@@ -61,7 +61,7 @@ echo
 echo 'Build outputs:'
 i=1
 for d in "${DEVICES[@]}"; do printf '  [%d] %s\n' "$i" "$d"; ((i++)); done
-n=$(choice "${#DEVICES[@]}" 'Device: ')
+n=$(choice "${#DEVICES[@]}" 'Select device: ')
 DEVICE="${DEVICES[$((n-1))]}"
 DOUT="$OUT/$DEVICE"
 ANDROID="$(prop ro.build.version.release)"
@@ -85,7 +85,7 @@ if ((MODE==1 || MODE==3)); then
 echo 'ROM packages:'
     i=1
     for f in "${ROMS[@]}"; do printf '  [%d] %s\n' "$i" "$(basename "$f")"; ((i++)); done
-    n=$(choice "${#ROMS[@]}" 'ROM: ')
+    n=$(choice "${#ROMS[@]}" 'Select ROM: ')
     FILES+=("${ROMS[$((n-1))]}")
 fi
 
@@ -100,21 +100,35 @@ if ((MODE==2 || MODE==3)); then
 echo 'Images:'
     i=1
     for f in "${IMGS[@]}"; do printf '  [%d] %s\n' "$i" "$(basename "$f")"; ((i++)); done
+
     while :; do
         read -r -p 'Select images (e.g. 1 3 4): ' raw || exit 1
+        raw="${raw//$'\t'/ }"
         [[ -n "${raw//[[:space:]]/}" ]] || continue
-        read -r -a sel <<< "$raw"
+
+        # Explicitly split on spaces. This prevents the global IFS from
+        # ever turning "1 2 6" into an invalid single selection.
+        IFS=' ' read -r -a sel <<< "$raw"
         good=1
         seen=' '
         for n in "${sel[@]}"; do
-            [[ "$n" =~ ^[0-9]+$ ]] && ((n>=1 && n<=${#IMGS[@]})) || good=0
-            if [[ "$seen" == *" $n "* ]]; then good=0; warn "Duplicate image selection: $n"; fi
+            if ! [[ "$n" =~ ^[0-9]+$ ]] || ((n<1 || n>${#IMGS[@]})); then
+                good=0
+                continue
+            fi
+            if [[ "$seen" == *" $n "* ]]; then
+                good=0
+                warn "Duplicate image selection: $n"
+            fi
             seen+="$n "
         done
-        ((good)) && break
-        warn "Enter valid image numbers from 1-${#IMGS[@]}, separated by spaces."
+        ((good)) || { warn "Enter valid image numbers from 1-${#IMGS[@]}, separated by spaces."; continue; }
+        break
     done
+
     for n in "${sel[@]}"; do FILES+=("${IMGS[$((n-1))]}"); done
+    echo 'Selected images:'
+    for n in "${sel[@]}"; do printf '  ✓ %s\n' "$(basename "${IMGS[$((n-1))]}")"; done
 fi
 
 read -r -p "Project name [${DISPLAY:-ROM}]: " PROJECT || exit 1
@@ -165,7 +179,6 @@ RELEASE_ID="$(safe "$PROJECT")_${DEVICE}_$(safe "$VARIANT")_$(safe "$ROOTM")_$(s
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 : > "$TMP/files.tsv"
-: > "$TMP/links.tsv"
 
 pd_upload(){
     local f="$1" name="$2" response id
@@ -208,7 +221,6 @@ for f in "${FILES[@]}"; do
     sha=$(sha256sum "$f" | awk '{print $1}')
     if link=$(pd_upload "$f" "$name"); then
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$base" "$(file_label "$f")" "$size" "$md5" "$sha" "$link" >> "$TMP/files.tsv"
-        printf '%s\t%s\n' "$name" "$link" >> "$TMP/links.tsv"
         ok "$(file_label "$f"): $link"
     else
         warn "Pixeldrain upload failed: $base"
@@ -217,7 +229,7 @@ done
 
 [[ -s "$TMP/files.tsv" ]] || die 'No files were uploaded to Pixeldrain; Telegram publish cancelled.'
 
-# Preserve the existing Telegraph key by publishing a small release/flash-guide page.
+# Preserve TELEGRAPH_TOKEN: create a lightweight flash-guide/release page.
 TELEGRAPH_URL=''
 TELEGRAPH_CONTENT=$(jq -cn \
     --arg project "$PROJECT" --arg device "$DEVICE" --arg android "$ANDROID" --arg patch "$PATCH_HUMAN" \
@@ -243,9 +255,11 @@ esac
 [[ "$ROOTM" == None ]] && NOTES+=("✅ Standard build without root modifications")
 NOTES+=("⚠️ Always backup your data before flashing" "Follow the flash guide for proper installation")
 
-# Telegram publish message: text + inline download buttons, no uploaded photo/banner/file.
+# Telegram publishes only a text release post with Pixeldrain buttons.
 E_PROJECT=$(html_escape "$PROJECT"); E_DEVICE=$(html_escape "$DEVICE"); E_ANDROID=$(html_escape "$ANDROID"); E_PATCH=$(html_escape "$PATCH_HUMAN"); E_BUILD=$(html_escape "$BUILD"); E_VARIANT=$(html_escape "$VARIANT"); E_ROOT=$(html_escape "$ROOTM"); E_SUSFS=$(html_escape "$SUSFS"); E_DATE=$(html_escape "$DATE_HUMAN"); E_AUTHOR=$(html_escape "$AUTHOR"); E_TAG=$(html_escape "$TAG")
-CAP="<b>📦 New Release: $E_PROJECT for $E_DEVICE</b>\n\n<b>Device:</b> $E_DEVICE\n<b>Project:</b> $E_PROJECT\n<b>Android Version:</b> $E_ANDROID\n<b>Security Patch:</b> $E_PATCH\n<b>Build:</b> $E_BUILD\n<b>Build Variant:</b> $E_VARIANT\n<b>Google Services:</b> $(case "$VARIANT" in GApps*) printf '%s' 'GApps included';; microG) printf '%s' 'microG included';; *) printf '%s' 'Not included';; esac)\n<b>Root:</b> $E_ROOT\n<b>SUSFS:</b> $E_SUSFS\n<b>Release Date:</b> $E_DATE\n<b>Maintainer:</b> $E_AUTHOR\n\n<b>Tag:</b> $E_TAG\n\n<b>Release Notes:</b>\n<pre>"
+GOOGLE_SERVICES='Not included'
+case "$VARIANT" in GApps*) GOOGLE_SERVICES='GApps included';; microG) GOOGLE_SERVICES='microG included';; esac
+CAP="<b>📦 New Release: $E_PROJECT for $E_DEVICE</b>\n\n<b>Device:</b> $E_DEVICE\n<b>Project:</b> $E_PROJECT\n<b>Android Version:</b> $E_ANDROID\n<b>Security Patch:</b> $E_PATCH\n<b>Build:</b> $E_BUILD\n<b>Build Variant:</b> $E_VARIANT\n<b>Google Services:</b> $(html_escape "$GOOGLE_SERVICES")\n<b>Root:</b> $E_ROOT\n<b>SUSFS:</b> $E_SUSFS\n<b>Release Date:</b> $E_DATE\n<b>Maintainer:</b> $E_AUTHOR\n\n<b>Tag:</b> $E_TAG\n\n<b>Release Notes:</b>\n<pre>"
 for note in "${NOTES[@]}"; do CAP+="$note\n"; done
 CAP+="\n</pre>\n\n<b>Files Size Information:</b>\n"
 while IFS=$'\t' read -r base label size md5 sha link; do
@@ -253,26 +267,26 @@ while IFS=$'\t' read -r base label size md5 sha link; do
 done < "$TMP/files.tsv"
 CAP+="\nClick the buttons below to download the files."
 
+# Build two buttons per row. Each button points directly to Pixeldrain.
 KEYBOARD='[]'
-: > "$TMP/row.json"
+ROW='[]'
+ROW_COUNT=0
 while IFS=$'\t' read -r base label size md5 sha link; do
     button=$(jq -cn --arg text "$label" --arg url "$link" '{text:$text,url:$url}')
-    if [[ ! -s "$TMP/row.json" ]]; then
-        printf '[%s]' "$button" > "$TMP/row.json"
-    else
-        jq --argjson b "$button" '. + [$b]' "$TMP/row.json" > "$TMP/row.tmp"
-        mv "$TMP/row.tmp" "$TMP/row.json"
-        KEYBOARD=$(jq -cn --argjson k "$KEYBOARD" --argjson r "$(cat "$TMP/row.json")" '$k + [$r]')
-        rm -f "$TMP/row.json"
+    ROW=$(jq -cn --argjson r "$ROW" --argjson b "$button" '$r + [$b]')
+    ((ROW_COUNT+=1))
+    if ((ROW_COUNT==2)); then
+        KEYBOARD=$(jq -cn --argjson k "$KEYBOARD" --argjson r "$ROW" '$k + [$r]')
+        ROW='[]'; ROW_COUNT=0
     fi
 done < "$TMP/files.tsv"
-if [[ -s "$TMP/row.json" ]]; then
-    KEYBOARD=$(jq -cn --argjson k "$KEYBOARD" --argjson r "$(cat "$TMP/row.json")" '$k + [$r]')
+if ((ROW_COUNT==1)); then
+    KEYBOARD=$(jq -cn --argjson k "$KEYBOARD" --argjson r "$ROW" '$k + [$r]')
 fi
-[[ -n "$TELEGRAPH_URL" ]] && KEYBOARD=$(jq -cn --argjson k "$KEYBOARD" --arg u "$TELEGRAPH_URL" '$k + [[{"text":"Flash Guide","url":$u}]]')
-KEYBOARD=$(jq -cn --argjson k "$KEYBOARD" --arg u "$SUPPORT_GROUP_URL" --arg d "$DEVELOPERS_URL" '$k + [[{"text":"Support Group","url":$u},{"text":"About Developers","url":$d}]]')
+[[ -n "$TELEGRAPH_URL" ]] && KEYBOARD=$(jq -cn --argjson k "$KEYBOARD" --arg u "$TELEGRAPH_URL" '$k + [[{"text":"Flash Guide ↗","url":$u}]]')
+KEYBOARD=$(jq -cn --argjson k "$KEYBOARD" --arg u "$SUPPORT_GROUP_URL" --arg d "$DEVELOPERS_URL" '$k + [[{"text":"Support Group ↗","url":$u},{"text":"About Developers ↗","url":$d}]]')
 if [[ "$ROOTM" == 'KSU Next' ]]; then
-    KEYBOARD=$(jq -cn --argjson k "$KEYBOARD" --arg u "$KSU_NEXT_MANAGER_URL" '$k + [[{"text":"KernelSU Next Manager","url":$u}]]')
+    KEYBOARD=$(jq -cn --argjson k "$KEYBOARD" --arg u "$KSU_NEXT_MANAGER_URL" '$k + [[{"text":"KernelSU Next ↗","url":$u}]]')
 fi
 REPLY_MARKUP=$(jq -cn --argjson k "$KEYBOARD" '{inline_keyboard:$k}')
 
