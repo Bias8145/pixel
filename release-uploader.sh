@@ -58,8 +58,7 @@ if old_project not in s:
     raise SystemExit("project detection target not found")
 s = s.replace(old_project, new_project, 1)
 
-# Eliminate every awk dependency from the generated runtime. This removes the
-# remaining source of the observed "awk ... default" failure on customized shells.
+# Eliminate every awk dependency from the generated runtime.
 s = s.replace('for x in bash curl jq find sed awk sha256sum md5sum stat date mktemp sort tr head basename file wc; do need "$x"; done',
               'for x in bash curl jq find sed sha256sum md5sum stat date mktemp sort tr head basename file wc; do need "$x"; done', 1)
 
