@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -u -o pipefail
 
+# Bias8145 multi-series release uploader
+# Secrets are read from the environment or a local mode-600 secrets file.
+
 msg(){ printf '%s\n' "$*"; }
 ok(){ printf '[OK] %s\n' "$*"; }
 warn(){ printf '[!] %s\n' "$*" >&2; }
 die(){ printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"; }
-for x in bash curl jq find sed awk sha256sum md5sum stat date mktemp sort tr; do need "$x"; done
+for x in bash curl jq find sed awk sha256sum md5sum stat date mktemp sort tr head; do need "$x"; done
 
 SECRETS_FILE="${PIXEL_UPLOADER_SECRETS:-$HOME/.config/pixel-uploader/secrets.env}"
 if [[ -z "${BOT_TOKEN:-}" || -z "${CHAT_ID:-}" || -z "${PIXELDRAIN_API_KEY:-}" || -z "${TELEGRAPH_TOKEN:-}" ]]; then
@@ -57,29 +60,14 @@ file_type(){
     local b="${1##*/}" l="${b,,}"
     case "$l" in
         *.zip|*.ozip|*.zip.md5) echo "ROM" ;;
-        boot*.img) echo "BOOT" ;;
-        init_boot*.img) echo "INIT BOOT" ;;
-        dtbo*.img) echo "DTBO" ;;
-        vendor_boot*.img) echo "VENDOR BOOT" ;;
         vendor_kernel_boot*.img) echo "VENDOR KERNEL BOOT" ;;
+        vendor_boot*.img) echo "VENDOR BOOT" ;;
+        init_boot*.img) echo "INIT BOOT" ;;
         vbmeta_system*.img) echo "VBMETA SYSTEM" ;;
         vbmeta_vendor*.img) echo "VBMETA VENDOR" ;;
         vbmeta*.img) echo "VBMETA" ;;
-        *) echo "FILE" ;;
-    esac
-}
-
-display_label(){
-    case "$1" in
-        "ROM") echo "ROM" ;;
-        "BOOT") echo "BOOT" ;;
-        "INIT BOOT") echo "INIT BOOT" ;;
-        "DTBO") echo "DTBO" ;;
-        "VENDOR BOOT") echo "VENDOR BOOT" ;;
-        "VENDOR KERNEL BOOT") echo "VENDOR KERNEL BOOT" ;;
-        "VBMETA SYSTEM") echo "VBMETA SYSTEM" ;;
-        "VBMETA VENDOR") echo "VBMETA VENDOR" ;;
-        "VBMETA") echo "VBMETA" ;;
+        dtbo*.img) echo "DTBO" ;;
+        boot*.img) echo "BOOT" ;;
         *) echo "FILE" ;;
     esac
 }
@@ -202,8 +190,8 @@ case "$VARIANT" in
 esac
 if [[ "$ROOTM" == "KSU Next" ]]; then ROOT_TAG="KSU-Next"; elif [[ "$ROOTM" == "None" ]]; then ROOT_TAG=""; else ROOT_TAG="$(safe "$ROOTM")"; fi
 BUILD_TAGS="[$(safe "$PROJECT")]"
-[[ -n "$DISPLAY" && "$DISPLAY" != "$BUILD" ]] && BUILD_TAGS+=" [$DISPLAY]"
-[[ -n "$BUILD" ]] && BUILD_TAGS+=" [$BUILD]"
+[[ -n "$DISPLAY" && "$DISPLAY" != "Unknown" && "$DISPLAY" != "$BUILD" ]] && BUILD_TAGS+=" [$DISPLAY]"
+[[ -n "$BUILD" && "$BUILD" != "Unknown" ]] && BUILD_TAGS+=" [$BUILD]"
 BUILD_TAGS+=" [Android $ANDROID] [$VARIANT_TAG]"
 [[ -n "$ROOT_TAG" ]] && BUILD_TAGS+=" [$ROOT_TAG]"
 [[ "$SUSFS" == Enabled ]] && BUILD_TAGS+=" [SUSFS]"
@@ -261,80 +249,100 @@ GUIDE+="Variant: $VARIANT"$'\n'
 GUIDE+="Rooting method: $ROOTM"$'\n'
 GUIDE+="SUSFS: $SUSFS"$'\n'
 GUIDE+="Maintainer: $AUTHOR"$'\n\n'
-GUIDE+=$'Files:\n'
+GUIDE+='Uploaded files:'$'\n'
 while IFS=$'\t' read -r original uploaded type size md5 sha link; do
-    mb="$(awk -v n="$size" 'BEGIN{printf "%.2f",n/1048576}')"
-    GUIDE+=$'\n'"$(display_label "$type")"$'\n'
+    GUIDE+=$'\n'
+    GUIDE+="$type"$'\n'
     GUIDE+="Name: $uploaded"$'\n'
-    GUIDE+="Size: $mb MB"$'\n'
+    GUIDE+="Size: $size bytes"$'\n'
     GUIDE+="MD5: $md5"$'\n'
     GUIDE+="SHA256: $sha"$'\n'
     GUIDE+="Pixeldrain: $link"$'\n'
-done <"$MANIFEST"
-GUIDE+=$'\nFlash instructions:\n1. Reboot to bootloader: fastboot reboot bootloader\n'
-step=2
+done < "$MANIFEST"
+GUIDE+=$'\nFlash instructions:\n'
+step=1
 while IFS=$'\t' read -r original uploaded type size md5 sha link; do
     case "$type" in
-        BOOT) GUIDE+="$step. fastboot flash --slot all boot $uploaded"$'\n' ;;
-        "INIT BOOT") GUIDE+="$step. fastboot flash --slot all init_boot $uploaded"$'\n' ;;
-        DTBO) GUIDE+="$step. fastboot flash --slot all dtbo $uploaded"$'\n' ;;
-        "VENDOR BOOT") GUIDE+="$step. fastboot flash --slot all vendor_boot $uploaded"$'\n' ;;
-        "VENDOR KERNEL BOOT") GUIDE+="$step. fastboot flash --slot all vendor_kernel_boot $uploaded"$'\n' ;;
-        VBMETA) GUIDE+="$step. fastboot --disable-verity --disable-verification flash vbmeta $uploaded"$'\n' ;;
-        "VBMETA SYSTEM") GUIDE+="$step. fastboot --disable-verity --disable-verification flash vbmeta_system $uploaded"$'\n' ;;
-        "VBMETA VENDOR") GUIDE+="$step. fastboot --disable-verity --disable-verification flash vbmeta_vendor $uploaded"$'\n' ;;
-        ROM) GUIDE+="$step. adb sideload $uploaded"$'\n' ;;
+        ROM) GUIDE+="$step. Install ROM from recovery: adb sideload $uploaded"$'\n';;
+        BOOT) GUIDE+="$step. Flash boot: fastboot flash --slot all boot $uploaded"$'\n';;
+        'INIT BOOT') GUIDE+="$step. Flash init_boot: fastboot flash --slot all init_boot $uploaded"$'\n';;
+        DTBO) GUIDE+="$step. Flash dtbo: fastboot flash --slot all dtbo $uploaded"$'\n';;
+        'VENDOR BOOT') GUIDE+="$step. Flash vendor_boot: fastboot flash --slot all vendor_boot $uploaded"$'\n';;
+        'VENDOR KERNEL BOOT') GUIDE+="$step. Flash vendor_kernel_boot: fastboot flash --slot all vendor_kernel_boot $uploaded"$'\n';;
+        VBMETA) GUIDE+="$step. Flash vbmeta: fastboot --disable-verity --disable-verification flash vbmeta $uploaded"$'\n';;
+        'VBMETA SYSTEM') GUIDE+="$step. Flash vbmeta_system: fastboot --disable-verity --disable-verification flash vbmeta_system $uploaded"$'\n';;
+        'VBMETA VENDOR') GUIDE+="$step. Flash vbmeta_vendor: fastboot --disable-verity --disable-verification flash vbmeta_vendor $uploaded"$'\n';;
     esac
     step=$((step+1))
-done <"$MANIFEST"
-GUIDE+=$'\nReboot after installation: fastboot reboot\n'
+done < "$MANIFEST"
+GUIDE+=$'\nBefore ROM sideload, reboot to recovery: fastboot reboot recovery\nAfter installation, reboot the device normally.\n'
 
-GUIDE_JSON="$(jq -cn --arg text "$GUIDE" '[{tag:"pre",children:[$text]}]')"
-TELEGRAPH_RESPONSE="$(curl -sS -X POST https://api.telegra.ph/createPage -d "access_token=$TELEGRAPH_TOKEN" --data-urlencode "title=Flash Guide - $PROJECT - $DISPLAY_DATE" --data-urlencode "author_name=$AUTHOR" --data-urlencode "author_url=https://khaliq-repos.pages.dev/" --data-urlencode "content=$GUIDE_JSON")"
-FLASH_GUIDE_URL="$(jq -r '.result.url // empty' <<<"$TELEGRAPH_RESPONSE" 2>/dev/null || true)"
+TELEGRAPH_CONTENT="$(jq -cn --arg text "$GUIDE" '[{tag:"pre",children:[$text]}]')"
+TELEGRAPH_RESPONSE="$(curl -sS -X POST https://api.telegra.ph/createPage \
+    -d "access_token=$TELEGRAPH_TOKEN" \
+    --data-urlencode "title=Flash Guide - $PROJECT - $DEVICE_NAME" \
+    --data-urlencode "author_name=$AUTHOR" \
+    --data-urlencode 'author_url=https://khaliq-repos.pages.dev/' \
+    --data-urlencode "content=$TELEGRAPH_CONTENT")"
+TELEGRAPH_URL="$(jq -r '.result.url // empty' <<< "$TELEGRAPH_RESPONSE")"
+[[ -n "$TELEGRAPH_URL" ]] && ok "Telegraph flash guide created." || warn "Telegraph guide creation failed; publishing without Flash Guide button."
 
-# Telegram release message uses real newlines; no literal \\n text.
-TELEGRAM_MESSAGE=$'<b>New Release: '"$(html "$PROJECT")"$'</b>\n\n'
-TELEGRAM_MESSAGE+='<b>Device:</b> '"$(html "$DEVICE_NAME")"$'\n'
-TELEGRAM_MESSAGE+='<b>Project:</b> '"$(html "$PROJECT")"$'\n'
-TELEGRAM_MESSAGE+='<b>Android Version:</b> '"$(html "$ANDROID")"$'\n'
-TELEGRAM_MESSAGE+='<b>Security Patch:</b> '"$(html "$PATCH")"$'\n'
-TELEGRAM_MESSAGE+='<b>Build Variant:</b> '"$(html "$VARIANT_TAG")"$'\n'
-TELEGRAM_MESSAGE+='<b>Google Services:</b> '"$(html "$GOOGLE_SERVICES")"$'\n'
-TELEGRAM_MESSAGE+='<b>Release Date:</b> '"$(html "$DISPLAY_DATE")"$'\n'
-TELEGRAM_MESSAGE+='<b>Maintainer:</b> '"$(html "$AUTHOR")"$'\n\n'
-TELEGRAM_MESSAGE+='<b>Tag:</b> '"$(html "$BUILD_TAGS")"$'\n\n'
-TELEGRAM_MESSAGE+='<b>Release Notes:</b>\n'
-[[ "$GOOGLE_SERVICES" == "GApps included" ]] && TELEGRAM_MESSAGE+=$'✅ Google Apps included\n'
-[[ "$GOOGLE_SERVICES" == "GApps included" ]] && TELEGRAM_MESSAGE+=$'✅ Google services integration\n'
-[[ "$GOOGLE_SERVICES" == "microG included" ]] && TELEGRAM_MESSAGE+=$'✅ microG included\n'
-[[ "$ROOTM" != "None" ]] && TELEGRAM_MESSAGE+="$(html "✅ $ROOTM support included")"$'\n'
-[[ "$SUSFS" == Enabled ]] && TELEGRAM_MESSAGE+=$'✅ SUSFS (Suspicious File System) enabled\n'
-TELEGRAM_MESSAGE+=$'⚠️ Always backup your data before flashing\n'
-TELEGRAM_MESSAGE+=$'Follow the flash guide for proper installation\n\n'
-TELEGRAM_MESSAGE+='<b>Files Size Information:</b>\n'
+TELEGRAM_MESSAGE="<b>New Release: $(html "$PROJECT")</b>"
+TELEGRAM_MESSAGE+=$'\n\n'
+TELEGRAM_MESSAGE+="<b>Device:</b> $(html "$DEVICE_NAME")"$'\n'
+TELEGRAM_MESSAGE+="<b>Project:</b> $(html "$PROJECT")"$'\n'
+TELEGRAM_MESSAGE+="<b>Android Version:</b> $(html "$ANDROID")"$'\n'
+TELEGRAM_MESSAGE+="<b>Security Patch:</b> $(html "$PATCH")"$'\n'
+TELEGRAM_MESSAGE+="<b>Build Variant:</b> $(html "$VARIANT")"$'\n'
+TELEGRAM_MESSAGE+="<b>Google Services:</b> $(html "$GOOGLE_SERVICES")"$'\n'
+TELEGRAM_MESSAGE+="<b>Release Date:</b> $(html "$DISPLAY_DATE")"$'\n'
+TELEGRAM_MESSAGE+="<b>Maintainer:</b> $(html "$AUTHOR")"$'\n\n'
+TELEGRAM_MESSAGE+="<b>Tag:</b> $(html "$BUILD_TAGS")"$'\n\n'
+TELEGRAM_MESSAGE+='<b>Release Notes:</b>'$'\n'
+case "$VARIANT" in
+    "GApps Full"|"GApps Core"|"GApps Pico")
+        TELEGRAM_MESSAGE+='✅ Google Apps included'$'\n'
+        TELEGRAM_MESSAGE+='✅ Google services integration'$'\n'
+        ;;
+    Vanilla) TELEGRAM_MESSAGE+='✅ Vanilla build without Google Apps'$'\n';;
+    microG) TELEGRAM_MESSAGE+='✅ microG services included'$'\n';;
+esac
+if [[ "$ROOTM" != "None" ]]; then TELEGRAM_MESSAGE+="✅ $(html "$ROOTM") support included"$'\n'; fi
+if [[ "$SUSFS" == Enabled ]]; then TELEGRAM_MESSAGE+='✅ SUSFS (Suspicious File System) enabled'$'\n'; fi
+TELEGRAM_MESSAGE+='✅ Advanced users recommended'$'\n\n'
+TELEGRAM_MESSAGE+='⚠️ Always backup your data before flashing'$'\n'
+TELEGRAM_MESSAGE+='Follow the flash guide for proper installation'$'\n\n'
+TELEGRAM_MESSAGE+='<b>Files Size Information:</b>'$'\n'
 while IFS=$'\t' read -r original uploaded type size md5 sha link; do
-    mb="$(awk -v n="$size" 'BEGIN{printf "%.1f",n/1048576}')"
-    label="$(display_label "$type")"
-    TELEGRAM_MESSAGE+="▫️ <b>$(html "$label")</b> – ${mb} MB | MD5: <code>${md5:0:8}</code> | SHA: <code>${sha:0:8}</code>"$'\n'
-done <"$MANIFEST"
-TELEGRAM_MESSAGE+=$'\nClick the buttons below to download the files'
+    human="$(awk -v n="$size" 'BEGIN { if (n >= 1073741824) printf "%.1f GB", n/1073741824; else printf "%.1f MB", n/1048576 }')"
+    TELEGRAM_MESSAGE+="▫️ <b>$(html "$type")</b> – $human | MD5: <code>${md5:0:8}</code> | SHA: <code>${sha:0:8}</code>"$'\n'
+done < "$MANIFEST"
+TELEGRAM_MESSAGE+=$'\n'
+TELEGRAM_MESSAGE+='Click the buttons below to download the files'
 
-BUTTON_JSON_LINES=()
+ROWS_JSON='[]'
+row='[]'
+count=0
 while IFS=$'\t' read -r original uploaded type size md5 sha link; do
-    label="$(display_label "$type")"
-    BUTTON_JSON_LINES+=("$(jq -cn --arg text "$label" --arg url "$link" '{text:$text,url:$url}')")
-done <"$MANIFEST"
+    [[ "$type" == "FILE" ]] && type="$(file_type "$original")"
+    button="$(jq -cn --arg text "$type" --arg url "$link" '{text:$text,url:$url}')"
+    row="$(jq -cn --argjson row "$row" --argjson button "$button" '$row + [$button]')"
+    count=$((count+1))
+    if ((count==2)); then
+        ROWS_JSON="$(jq -cn --argjson rows "$ROWS_JSON" --argjson row "$row" '$rows + [$row]')"
+        row='[]'; count=0
+    fi
+done < "$MANIFEST"
+if ((count==1)); then ROWS_JSON="$(jq -cn --argjson rows "$ROWS_JSON" --argjson row "$row" '$rows + [$row]')"; fi
+if [[ -n "$TELEGRAPH_URL" ]]; then ROWS_JSON="$(jq -cn --argjson rows "$ROWS_JSON" --arg url "$TELEGRAPH_URL" '$rows + [[{text:"Flash Guide",url:$url}]]')"; fi
+ROWS_JSON="$(jq -cn --argjson rows "$ROWS_JSON" --arg url 'https://khaliq-repos.pages.dev/' '$rows + [[{text:"About Developer",url:$url}]]')"
+KEYBOARD_JSON="$(jq -cn --argjson rows "$ROWS_JSON" '{inline_keyboard:$rows}')" || die "Failed to build Telegram keyboard JSON."
+jq -e . >/dev/null <<< "$KEYBOARD_JSON" || die "Telegram keyboard JSON validation failed."
 
-KEYBOARD_JSON="$(printf '%s\n' "${BUTTON_JSON_LINES[@]}" | jq -sc '{inline_keyboard:([.[]] | to_entries | reduce .[] as $item ({rows:[],current:[]}; .current += [$item.value] | if (.current|length)==2 then .rows += [.current] | .current=[] else . end) | .rows + (if (.current|length)>0 then [.current] else [] end))}')"
-if [[ -n "$FLASH_GUIDE_URL" ]]; then KEYBOARD_JSON="$(jq -c --arg url "$FLASH_GUIDE_URL" '.inline_keyboard += [[{text:"Flash Guide",url:$url}]]' <<<"$KEYBOARD_JSON")"; fi
-KEYBOARD_JSON="$(jq -c '.inline_keyboard += [[{text:"About Developer",url:"https://khaliq-repos.pages.dev/"}]]' <<<"$KEYBOARD_JSON")"
-jq -e . >/dev/null <<<"$KEYBOARD_JSON" || die "Generated Telegram keyboard is invalid JSON."
-
-send_result=""
+send_result=''
 if [[ -n "$BANNER_URL" ]]; then
     send_result="$(curl -sS -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" -d chat_id="$CHAT_ID" --data-urlencode photo="$BANNER_URL" --data-urlencode caption="$TELEGRAM_MESSAGE" -d parse_mode=HTML --data-urlencode reply_markup="$KEYBOARD_JSON")"
-    if ! jq -e '.ok == true' >/dev/null <<<"$send_result"; then
+    if ! jq -e '.ok == true' >/dev/null <<< "$send_result"; then
         warn "Banner send failed; falling back to text message."
         send_result="$(curl -sS -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -d chat_id="$CHAT_ID" --data-urlencode text="$TELEGRAM_MESSAGE" -d parse_mode=HTML --data-urlencode reply_markup="$KEYBOARD_JSON")"
     fi
@@ -342,14 +350,14 @@ else
     send_result="$(curl -sS -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -d chat_id="$CHAT_ID" --data-urlencode text="$TELEGRAM_MESSAGE" -d parse_mode=HTML --data-urlencode reply_markup="$KEYBOARD_JSON")"
 fi
 
-if jq -e '.ok == true' >/dev/null <<<"$send_result"; then
+if jq -e '.ok == true' >/dev/null <<< "$send_result"; then
     ok "Telegram release published successfully."
 else
-    warn "Telegram publish failed: $(jq -r '.description // "unknown error"' <<<"$send_result" 2>/dev/null || printf '%s' "$send_result")"
+    warn "Telegram publish failed: $(jq -r '.description // "unknown error"' <<< "$send_result" 2>/dev/null || printf '%s' "$send_result")"
     exit 1
 fi
 
-printf '%s\n' "$TELEGRAM_MESSAGE" >"$TMP/release-message.html"
-printf '%s\n' "$KEYBOARD_JSON" >"$TMP/telegram-keyboard.json"
-printf '%s\n' "$GUIDE" >"$TMP/flash-guide.txt"
+printf '%s\n' "$TELEGRAM_MESSAGE" > "$TMP/release-message.html"
+printf '%s\n' "$KEYBOARD_JSON" > "$TMP/telegram-keyboard.json"
+printf '%s\n' "$GUIDE" > "$TMP/flash-guide.txt"
 msg "Release ID: $RELEASE_ID"
