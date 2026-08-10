@@ -25,8 +25,8 @@ fi
 : "${PIXELDRAIN_API_KEY:?Set PIXELDRAIN_API_KEY}"
 : "${TELEGRAPH_TOKEN:?Set TELEGRAPH_TOKEN}"
 
-ROOT="${ANDROID_BUILD_TOP:-$(pwd)}"
-OUT="$ROOT/out/target/product"
+ROOT="${PIXEL_UPLOADER_SOURCE_ROOT:-${ANDROID_BUILD_TOP:-$(pwd)}}"
+OUT="${PIXEL_UPLOADER_OUT:-$ROOT/out/target/product}"
 [[ -d "$OUT" ]] || die "Cannot find $OUT. Run from Android source tree or export ANDROID_BUILD_TOP."
 
 choose(){
@@ -109,7 +109,7 @@ if ((MODE==2 || MODE==3)); then
     read -r -p 'Select images (e.g. 1 2 6): ' raw || exit 1
     norm="$(printf '%s' "$raw" | tr ',\t\r' '   ' | sed -E 's/[[:space:]]+/ /g;s/^ +//;s/ +$//')"
     [[ "$norm" =~ ^[0-9]+( [0-9]+)*$ ]] || { warn 'Use space-separated numbers, for example: 1 2 6'; continue; }
-    sel=(); while read -r x; do sel+=("$x"); done < <(printf '%s\n' "$norm" | awk '{for(i=1;i<=NF;i++)print $i}')
+    read -r -a sel <<< "$norm"
     good=1; seen=' '
     for x in "${sel[@]}"; do ((x>=1&&x<=${#IMGS[@]})) || good=0; [[ "$seen" == *" $x "* ]] && good=0; seen+="$x "; done
     ((good)) && break
@@ -179,27 +179,17 @@ MAIN_URLS=(); FILE_TYPES=(); ROWS=''; GUIDE_LINES=()
 while IFS=$'\t' read -r f name url sz md5 sha ty; do
   MAIN_URLS+=("$url"); FILE_TYPES+=("$ty")
   ROWS+="▫️ <b>$(html "$ty")</b> — $(size_of "$sz") | MD5: <code>${md5:0:8}</code> | SHA256: <code>${sha:0:8}</code>"$'\n'
-  p="$(part_of "$f")"; [[ -n "$p" ]] && GUIDE_LINES+=("fastboot flash $p $name")
+  p="$(part_of "$f")"; [[ -n "$p" ]] && GUIDE_LINES+=("fastboot flash $p $(basename "$f")")
 done < "$MANIFEST"
-
-RELEASE_NOTES=()
-case "$VARIANT_CHOICE" in
-  1|2|3) RELEASE_NOTES+=("$NOTE") ;;
-  4) RELEASE_NOTES+=("Vanilla build without Google services") ;;
-  5) RELEASE_NOTES+=("Vanilla build with microG services") ;;
-esac
-if [[ "$ROOTM" != None ]]; then
-  root_note="$ROOTM"; [[ -n "$ROOT_VERSION" ]] && root_note+=" $ROOT_VERSION"
-  RELEASE_NOTES+=("$root_note integrated")
-fi
-[[ "$SUSFS" == Enabled ]] && { sus_note="SUSFS enabled"; [[ -n "$SUSFS_VERSION" ]] && sus_note+=" — $SUSFS_VERSION"; RELEASE_NOTES+=("$sus_note"); }
-RELEASE_NOTES+=("Installation guide generated for the selected files")
-RELEASE_BLOCK=''; for line in "${RELEASE_NOTES[@]}"; do RELEASE_BLOCK+="• $(html "$line")"$'\n'; done
-
-TAG="[$PROJECT] [$BUILD] [Android $ANDROID] [$GTAG]"
+TAG="[${PROJECT// /_}] [$BUILD] [Android $ANDROID] [$GTAG]"
 [[ -n "$RTAG" ]] && TAG+=" [$RTAG${ROOT_VERSION:+-$ROOT_VERSION}]"
 [[ "$SUSFS" == Enabled ]] && TAG+=" [SUSFS${SUSFS_VERSION:+-$SUSFS_VERSION}]"
 TAG+=" [$DDATE]"
+
+RELEASE_BLOCK="• $NOTE"
+[[ "$ROOTM" != None ]] && RELEASE_BLOCK+=$'\n• '"$ROOTM support included${ROOT_VERSION:+ ($ROOT_VERSION)}"
+[[ "$SUSFS" == Enabled ]] && RELEASE_BLOCK+=$'\n• '"SUSFS enabled${SUSFS_VERSION:+ ($SUSFS_VERSION)}"
+RELEASE_BLOCK+=$'\n• '"Clean installation recommended"
 
 TELEGRAPH_TITLE="Flash Guide — $PROJECT — $DEVICE_NAME"
 GUIDE_TEXT="FLASH GUIDE — $PROJECT
@@ -277,7 +267,7 @@ if [[ -n "$RTAG" ]]; then root_display="$ROOTM"; [[ -n "$ROOT_VERSION" ]] && roo
 if [[ "$SUSFS" == Enabled ]]; then sus_display="Enabled"; [[ -n "$SUSFS_VERSION" ]] && sus_display+=" $SUSFS_VERSION"; MESSAGE+="<b>SUSFS:</b> $(html "$sus_display")"$'\n'; fi
 MESSAGE+=$'\n'"<b>Tag:</b> $(html "$TAG")"$'\n\n'
 MESSAGE+="<b>Release Notes:</b>"$'\n'
-MESSAGE+='<blockquote>'"$RELEASE_BLOCK"'</blockquote>'$'\n'
+MESSAGE+='<blockquote>'"$(html "$RELEASE_BLOCK")"'</blockquote>'$'\n'
 MESSAGE+=$'\n'"<b>Files Size Information:</b>"$'\n'
 MESSAGE+="$ROWS"
 MESSAGE+=$'\n'"Click the buttons below to download the files"
@@ -302,45 +292,98 @@ fi
 INLINE_KEYBOARD+=']}'
 
 TEMP_MSG_FILE="$(mktemp)"; printf '%s' "$MESSAGE" > "$TEMP_MSG_FILE"
-BANNER_FILE=''; BANNER_FILE_ID=''
+BANNER_FILE=''; BANNER_FILE_ID=''; BANNER_MODE='none'
+
+# Banner resolver based on the reference uploader:
+# 1) direct image URL -> download and upload to Telegram
+# 2) public Telegram post -> first try Bot API copyMessage, then scrape the public embed page
+# 3) ordinary web page -> resolve og:image/twitter:image and download it
 resolve_telegram_banner(){
-  local url="$1" channel msgid copy_response copied_id photo_id
-  if [[ "$url" =~ ^https?://t\.me/([^/?#]+)/([0-9]+)(/)?$ ]]; then channel="${BASH_REMATCH[1]}"; msgid="${BASH_REMATCH[2]}"
-  elif [[ "$url" =~ ^https?://telegram\.me/([^/?#]+)/([0-9]+)(/)?$ ]]; then channel="${BASH_REMATCH[1]}"; msgid="${BASH_REMATCH[2]}"
+  local url="$1" channel msgid response copied_id photo_id
+  if [[ "$url" =~ ^https?://t\.me/([^/?#]+)/([0-9]+)/?$ ]]; then
+    channel="${BASH_REMATCH[1]}"; msgid="${BASH_REMATCH[2]}"
+  elif [[ "$url" =~ ^https?://telegram\.me/([^/?#]+)/([0-9]+)/?$ ]]; then
+    channel="${BASH_REMATCH[1]}"; msgid="${BASH_REMATCH[2]}"
   else return 1; fi
-  copy_response="$(curl --fail --silent --show-error --max-time 30 -X POST "https://api.telegram.org/bot$BOT_TOKEN/copyMessage" --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "from_chat_id=@$channel" --data-urlencode "message_id=$msgid" --data-urlencode "disable_notification=true" 2>/dev/null)" || return 1
-  copied_id="$(jq -r '.result.message_id // empty' <<< "$copy_response" 2>/dev/null)"
-  photo_id="$(jq -r '.result.photo[-1].file_id // empty' <<< "$copy_response" 2>/dev/null)"
-  if [[ -n "$copied_id" ]]; then curl --fail --silent --show-error --max-time 20 -X POST "https://api.telegram.org/bot$BOT_TOKEN/deleteMessage" --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "message_id=$copied_id" >/dev/null 2>&1 || true; fi
+  response="$(curl --fail --silent --show-error --max-time 30 -X POST "https://api.telegram.org/bot$BOT_TOKEN/copyMessage" \
+    --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "from_chat_id=@$channel" \
+    --data-urlencode "message_id=$msgid" --data-urlencode 'disable_notification=true' 2>/dev/null || true)"
+  copied_id="$(jq -r '.result.message_id // empty' <<< "$response" 2>/dev/null || true)"
+  photo_id="$(jq -r '.result.photo[-1].file_id // empty' <<< "$response" 2>/dev/null || true)"
+  if [[ -n "$copied_id" ]]; then
+    curl --fail --silent --show-error --max-time 20 -X POST "https://api.telegram.org/bot$BOT_TOKEN/deleteMessage" \
+      --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "message_id=$copied_id" >/dev/null 2>&1 || true
+  fi
   [[ -n "$photo_id" ]] || return 1
   printf '%s' "$photo_id"
 }
-resolve_banner_from_html(){
-  local page="$TMP/banner.html" image_url='' page_url="$BANNER_URL"
-  if [[ "$page_url" =~ ^https?://(t\.me|telegram\.me)/[^/?#]+/[0-9]+/?$ ]]; then page_url="${page_url}?embed=1"; fi
-  curl --fail --location --silent --show-error --max-time 60 -A 'Mozilla/5.0' "$page_url" -o "$page" 2>/dev/null || return 1
-  image_url="$(sed -nE 's/.*property="og:image"[^>]*content="([^"]+)".*/\1/p' "$page" | head -n1)"
-  [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*property='og:image'[^>]*content='([^']+)'.*/\1/p" "$page" | head -n1)"
-  [[ -n "$image_url" ]] || image_url="$(sed -nE 's/.*name="twitter:image"[^>]*content="([^"]+)".*/\1/p' "$page" | head -n1)"
-  [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*name='twitter:image'[^>]*content='([^']+)'.*/\1/p" "$page" | head -n1)"
+
+resolve_web_banner(){
+  local url="$1" page="$TMP/banner.html" image_url='' mime='' ct=''
+  if curl --fail --silent --show-error --location --max-time 60 -A 'Mozilla/5.0' "$url" -o "$page" 2>/dev/null; then
+    image_url="$(sed -nE 's/.*<meta[^>]+property=["'"']og:image["'"'][^>]+content=["'"']([^"'"']+)["'"'][^>]*>.*/\1/ip' "$page" | head -n1)"
+    [[ -n "$image_url" ]] || image_url="$(sed -nE 's/.*<meta[^>]+content=["'"']([^"'"']+)["'"'][^>]+property=["'"']og:image["'"'][^>]*>.*/\1/ip' "$page" | head -n1)"
+    [[ -n "$image_url" ]] || image_url="$(sed -nE 's/.*<meta[^>]+name=["'"']twitter:image["'"'][^>]+content=["'"']([^"'"']+)["'"'][^>]*>.*/\1/ip' "$page" | head -n1)"
+    [[ -n "$image_url" ]] || image_url="$(sed -nE 's/.*<meta[^>]+content=["'"']([^"'"']+)["'"'][^>]+name=["'"']twitter:image["'"'][^>]*>.*/\1/ip' "$page" | head -n1)"
+  fi
   [[ -n "$image_url" ]] || return 1
-  image_url="$(printf '%s' "$image_url" | sed 's/&amp;/\&/g')"; [[ "$image_url" =~ ^https?:// ]] || return 1
-  BANNER_FILE="$TMP/banner"; curl --fail --location --silent --show-error --max-time 60 -A 'Mozilla/5.0' "$image_url" -o "$BANNER_FILE" 2>/dev/null || return 1
-  [[ -s "$BANNER_FILE" ]] && file "$BANNER_FILE" | grep -Eqi 'image|webp'
+  image_url="$(printf '%s' "$image_url" | sed 's/&amp;/\&/g')"
+  [[ "$image_url" =~ ^https?:// ]] || return 1
+  BANNER_FILE="$TMP/banner-image"
+  curl --fail --silent --show-error --location --max-time 60 -A 'Mozilla/5.0' "$image_url" -o "$BANNER_FILE" 2>/dev/null || return 1
+  [[ -s "$BANNER_FILE" ]] || return 1
+  ct="$(file --brief --mime-type "$BANNER_FILE" 2>/dev/null || true)"
+  [[ "$ct" == image/* ]] || return 1
+  return 0
 }
+
+resolve_direct_banner(){
+  local url="$1"
+  BANNER_FILE="$TMP/banner-image"
+  curl --fail --silent --show-error --location --max-time 60 -A 'Mozilla/5.0' "$url" -o "$BANNER_FILE" 2>/dev/null || return 1
+  [[ -s "$BANNER_FILE" ]] || return 1
+  file --brief --mime-type "$BANNER_FILE" 2>/dev/null | grep -q '^image/'
+}
+
 if [[ -n "$BANNER_URL" ]]; then
-  if BANNER_FILE_ID="$(resolve_telegram_banner "$BANNER_URL")"; then ok 'Telegram banner resolved from public post'
-  elif resolve_banner_from_html; then ok 'Banner image resolved from URL'
-  else BANNER_FILE=''; BANNER_FILE_ID=''; warn 'Banner URL could not be resolved to an image; publishing without banner.'; fi
+  printf 'Resolving banner...\n'
+  if [[ "$BANNER_URL" =~ ^https?://(t\.me|telegram\.me)/[^/?#]+/[0-9]+/?$ ]]; then
+    if BANNER_FILE_ID="$(resolve_telegram_banner "$BANNER_URL")"; then
+      BANNER_MODE='file_id'; ok 'Banner resolved from Telegram post'
+    elif resolve_web_banner "$BANNER_URL?embed=1"; then
+      BANNER_MODE='file'; ok 'Banner image extracted from Telegram post'
+    else
+      warn 'Telegram post does not expose a usable image to the bot. Publishing without banner.'
+    fi
+  elif resolve_direct_banner "$BANNER_URL"; then
+    BANNER_MODE='file'; ok 'Banner image downloaded from URL'
+  elif resolve_web_banner "$BANNER_URL"; then
+    BANNER_MODE='file'; ok 'Banner image extracted from webpage'
+  else
+    warn 'Banner URL could not be resolved to an image. Publishing without banner.'
+  fi
 fi
 
-echo
-if [[ -n "$BANNER_FILE_ID" ]]; then
-  curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "photo=$BANNER_FILE_ID" --data-urlencode "caption@$TEMP_MSG_FILE" --data-urlencode "parse_mode=HTML" --data-urlencode "reply_markup=$INLINE_KEYBOARD" >/dev/null
-elif [[ -n "$BANNER_FILE" ]]; then
-  curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" -F "chat_id=$CHAT_ID" -F "photo=@$BANNER_FILE" -F "caption=<$TEMP_MSG_FILE" -F "parse_mode=HTML" -F "reply_markup=$INLINE_KEYBOARD" >/dev/null
+publish_ok=0
+if [[ "$BANNER_MODE" == file_id && -n "$BANNER_FILE_ID" ]]; then
+  response="$(curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" \
+    --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "photo=$BANNER_FILE_ID" \
+    --data-urlencode "caption@$TEMP_MSG_FILE" --data-urlencode 'parse_mode=HTML' \
+    --data-urlencode "reply_markup=$INLINE_KEYBOARD" 2>/dev/null || true)"
+  jq -e '.ok==true' >/dev/null 2>&1 <<< "$response" && publish_ok=1
+elif [[ "$BANNER_MODE" == file && -s "$BANNER_FILE" ]]; then
+  response="$(curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto" \
+    -F "chat_id=$CHAT_ID" -F "photo=@$BANNER_FILE" -F "caption=<$TEMP_MSG_FILE" \
+    -F 'parse_mode=HTML' -F "reply_markup=$INLINE_KEYBOARD" 2>/dev/null || true)"
+  jq -e '.ok==true' >/dev/null 2>&1 <<< "$response" && publish_ok=1
+fi
+if ((publish_ok==0)); then
+  response="$(curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+    --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "text@$TEMP_MSG_FILE" \
+    --data-urlencode 'parse_mode=HTML' --data-urlencode "reply_markup=$INLINE_KEYBOARD" 2>/dev/null || true)"
+  jq -e '.ok==true' >/dev/null 2>&1 <<< "$response" || { rm -f "$TEMP_MSG_FILE"; die 'Telegram publish failed.'; }
+  if [[ -n "$BANNER_URL" ]]; then warn 'Release published without banner.'; fi
 else
-  curl --fail --silent --show-error -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" --data-urlencode "chat_id=$CHAT_ID" --data-urlencode "text@$TEMP_MSG_FILE" --data-urlencode "parse_mode=HTML" --data-urlencode "reply_markup=$INLINE_KEYBOARD" >/dev/null
-fi || { warn 'Telegram publish failed.'; rm -f "$TEMP_MSG_FILE"; exit 1; }
+  ok 'Telegram release published successfully with banner.'
+fi
 rm -f "$TEMP_MSG_FILE"
-ok 'Telegram release published successfully.'
