@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Fresh release session. This launcher never modifies the caller's Android build environment.
+# Fresh release session. The current working tree is the release context.
 need(){ command -v "$1" >/dev/null 2>&1 || { printf '[ERROR] Missing command: %s\n' "$1" >&2; exit 1; }; }
-for x in bash curl find dirname mktemp stat; do need "$x"; done
+for x in bash curl find dirname mktemp stat sed date; do need "$x"; done
 
 unset PIXEL_UPLOADER_SOURCE_ROOT PIXEL_UPLOADER_OUT
 unset RELEASE_DEVICE RELEASE_ROM RELEASE_PROJECT RELEASE_METADATA
@@ -17,38 +17,22 @@ is_android_tree(){
   return 1
 }
 
-find_source_root(){
-  local p="$PWD"
-  while [[ "$p" != "/" ]]; do
-    if is_android_tree "$p"; then printf '%s\n' "$p"; return 0; fi
-    p="$(dirname "$p")"
-  done
-  return 1
-}
-
-ROOT="$(find_source_root || true)"
-if [[ -z "$ROOT" && -n "${ANDROID_BUILD_TOP:-}" ]] && is_android_tree "$ANDROID_BUILD_TOP"; then
-  ROOT="$ANDROID_BUILD_TOP"
-fi
-[[ -n "$ROOT" ]] || {
-  printf '[ERROR] Android source tree not found from: %s\n' "$PWD" >&2
-  printf '[ERROR] Expected out/target/product in the current tree.\n' >&2
+# Do not consult a stale ANDROID_BUILD_TOP first. The directory where the
+# uploader is executed is always the release context.
+if ! is_android_tree "$PWD"; then
+  printf '[ERROR] Current directory is not an Android source root: %s\n' "$PWD" >&2
+  printf '[ERROR] Run the uploader directly from the ROM source root.\n' >&2
   exit 1
-}
+fi
 
+ROOT="$PWD"
 OUT="$ROOT/out/target/product"
 printf '[INFO] Fresh release session\n'
-if [[ -n "${ANDROID_BUILD_TOP:-}" && "$ANDROID_BUILD_TOP" != "$ROOT" ]]; then
-  printf '[INFO] Ignoring stale ANDROID_BUILD_TOP: %s\n' "$ANDROID_BUILD_TOP"
-fi
 printf '[INFO] Source tree: %s\n' "$ROOT"
 
-# Private variables only; the caller's ANDROID_BUILD_TOP is not changed.
 export PIXEL_UPLOADER_SOURCE_ROOT="$ROOT"
 export PIXEL_UPLOADER_OUT="$OUT"
 
-# Secrets: ~/.config/pixel-uploader/secrets.env (mode 600) is preferred, then ~/.build_env.
-# Only Pixeldrain is requested interactively when it is missing.
 SECRETS_FILE="${PIXEL_UPLOADER_SECRETS:-$HOME/.config/pixel-uploader/secrets.env}"
 load_secrets(){
   local f="$1" mode
@@ -84,10 +68,22 @@ curl --fail --silent --show-error --location \
   "${CORE_URL}?ts=$(date +%s%N)" \
   -o "$CORE"
 
-# Never rewrite/patch the core in a temporary Python transformation. This prevents
-# malformed shell syntax and makes the downloaded core exactly what was pushed.
+# The current core contains banner-parser expressions with shell quote syntax
+# that older revisions generated incorrectly. Normalize only those known lines,
+# then validate the complete downloaded script before executing it.
+sed -i \
+  '/image_url=.*property=.*og:image/c\    image_url="$(sed -nE "s/.*property=\\\"og:image\\\"[^>]+content=\\\"([^\\\"]+)\\\".*/\\1/ip" "$page" | head -n1)' \
+  '/image_url=.*content=.*og:image.*property=/c\    [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*content=\\\"([^\\\"]+)\\\"[^>]+property=\\\"og:image\\\".*/\\1/ip" "$page" | head -n1)' \
+  '/image_url=.*name=.*twitter:image/c\    [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*name=\\\"twitter:image\\\"[^>]+content=\\\"([^\\\"]+)\\\".*/\\1/ip" "$page" | head -n1)' \
+  '/image_url=.*content=.*twitter:image.*name=/c\    [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*content=\\\"([^\\\"]+)\\\"[^>]+name=\\\"twitter:image\\\".*/\\1/ip" "$page" | head -n1)' \
+  "$CORE"
+
+# Fix the multipart caption form field if an older core revision is present.
+sed -i 's/-F "caption=<$TEMP_MSG_FILE"/-F "caption=@$TEMP_MSG_FILE"/' "$CORE"
+
 bash -n "$CORE" || {
-  printf '[ERROR] release-uploader-core.sh from GitHub failed bash syntax validation.\n' >&2
+  printf '[ERROR] release-uploader-core.sh failed syntax validation.\n' >&2
+  printf '[ERROR] The release was not started.\n' >&2
   exit 2
 }
 
