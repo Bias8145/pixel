@@ -8,7 +8,7 @@ IFS=$'\n\t'
 C_RESET='\033[0m'; C_CYAN='\033[0;36m'; C_GREEN='\033[0;32m'; C_YELLOW='\033[1;33m'; C_RED='\033[0;31m'
 msg(){ printf '%b\n' "${C_CYAN}$*${C_RESET}"; }; ok(){ printf '%b\n' "${C_GREEN}✓ $*${C_RESET}"; }; warn(){ printf '%b\n' "${C_YELLOW}! $*${C_RESET}" >&2; }; die(){ printf '%b\n' "${C_RED}✗ $*${C_RESET}" >&2; exit 1; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"; }
-for x in curl jq find sed awk sha256sum stat; do need "$x"; done
+for x in curl jq find sed awk sha256sum stat date; do need "$x"; done
 [[ -n "${BOT_TOKEN:-}" && -n "${CHAT_ID:-}" && -n "${PIXELDRAIN_API_KEY:-}" ]] || die 'Set BOT_TOKEN, CHAT_ID and PIXELDRAIN_API_KEY first.'
 
 ROOT="${ANDROID_BUILD_TOP:-$(pwd)}"; OUT="$ROOT/out/target/product"
@@ -21,7 +21,7 @@ mapfile -t DEVICES < <(find "$OUT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n
 echo; echo 'Build outputs:'; i=1; for d in "${DEVICES[@]}"; do printf '  [%d] %s\n' "$i" "$d"; ((i++)); done
 n=$(choice "${#DEVICES[@]}" 'Device: '); DEVICE="${DEVICES[$((n-1))]}"; DOUT="$OUT/$DEVICE"
 
-prop(){ local k="$1" f v=''; for f in "$DOUT/system/build.prop" "$DOUT/vendor/build.prop" "$DOUT/product/build.prop"; do [[ -f "$f" ]] && { v="$(sed -n "s/^$k=//p" "$f" | head -n1 | tr -d '\r')"; [[ -n "$v" ]] && break; }; done; printf '%s' "${v:-Unknown}"; }
+prop(){ local k="$1" f v=''; for f in "$DOUT/system/build.prop" "$DOUT/vendor/build.prop" "$DOUT/product/build.prop" "$DOUT/system/system/build.prop"; do [[ -f "$f" ]] && { v="$(sed -n "s/^$k=//p" "$f" | head -n1 | tr -d '\r')"; [[ -n "$v" ]] && break; }; done; printf '%s' "${v:-Unknown}"; }
 ANDROID="$(prop ro.build.version.release)"; PATCH="$(prop ro.build.version.security_patch)"; BUILD="$(prop ro.build.id)"; DISPLAY="$(prop ro.build.display.id)"
 msg "Device: $DEVICE | Android: $ANDROID | Build: $BUILD | SPL: $PATCH"
 
@@ -37,7 +37,7 @@ if ((MODE==2||MODE==3)); then
   IMGS=(); while IFS= read -r f; do b="$(basename "$f")"; [[ "$b" =~ ^(boot|init_boot|dtbo|vendor_boot|vendor_kernel_boot|vbmeta|vbmeta_system|vbmeta_vendor)([-_].*)?\.img$ ]] && IMGS+=("$f"); done < <(find "$DOUT" -maxdepth 1 -type f -iname '*.img' -print | sort)
   ((${#IMGS[@]})) || die 'No supported images found.'
   echo; echo 'Images:'; i=1; for f in "${IMGS[@]}"; do printf '  [%d] %s\n' "$i" "$(basename "$f")"; ((i++)); done
-  while :; do read -r -p 'Select images (e.g. 1 3 4): ' raw; raw="${raw//,/ }"; IFS=' ' read -r -a sel <<< "$raw"; [[ ${#sel[@]} -gt 0 ]] || continue; good=1; for n in "${sel[@]}"; do [[ "$n" =~ ^[0-9]+$ ]] && ((n>=1&&n<=${#IMGS[@]})) || good=0; done; ((good)) && break; warn 'Invalid image selection.'; done
+  while :; do read -r -p 'Select images (e.g. 1 3 4): ' raw || exit 1; raw="${raw//,/ }"; read -r -a sel <<< "$raw"; [[ ${#sel[@]} -gt 0 ]] || continue; good=1; seen=' '; for n in "${sel[@]}"; do [[ "$n" =~ ^[0-9]+$ ]] && ((n>=1&&n<=${#IMGS[@]})) || good=0; [[ "$seen" != *" $n "* ]] || { good=0; warn 'Duplicate image selection.'; }; seen+="$n "; done; ((good)) && break; warn "Enter valid image numbers from 1-${#IMGS[@]}, separated by spaces."; done
   for n in "${sel[@]}"; do FILES+=("${IMGS[$((n-1))]}"); done
 fi
 
@@ -56,7 +56,7 @@ pd(){ local f="$1" name="$2" r id; r="$(curl --fail-with-body -sS -u ":$PIXELDRA
 tele(){ local f="$1" name="$2" cap="$3"; curl --fail-with-body -sS "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" -F "chat_id=$CHAT_ID" -F "document=@$f;filename=$name" -F "caption=$cap" -F 'parse_mode=HTML' >/dev/null; }
 for f in "${FILES[@]}"; do
   [[ -f "$f" ]] || { warn "Missing: $f"; continue; }; base="$(basename "$f")"; if [[ $base == *.zip.md5 ]]; then name="${base%.zip.md5}_${TAG}.zip.md5"; else name="${base%.*}_${TAG}.${base##*.}"; fi
-  size=$(stat -c %s "$f"); sha=$(sha256sum "$f"|awk '{print $1}'); printf '%s | %s bytes | SHA256:%s\n' "$base" "$size" "$sha" >> "$TMP/manifest"
+  size=$(stat -c %s "$f" 2>/dev/null || stat -f %z "$f"); sha=$(sha256sum "$f"|awk '{print $1}'); printf '%s | %s bytes | SHA256:%s\n' "$base" "$size" "$sha" >> "$TMP/manifest"
   if link=$(pd "$f" "$name"); then ok "Pixeldrain: $link"; printf '%s → %s\n' "$name" "$link" >> "$TMP/links"; else warn "Pixeldrain failed: $base"; fi
 done
 ESC=$(sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g' "$TMP/links")
