@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Fresh release session. The current working tree is the release context.
 need(){ command -v "$1" >/dev/null 2>&1 || { printf '[ERROR] Missing command: %s\n' "$1" >&2; exit 1; }; }
-for x in bash curl find dirname mktemp stat sed date; do need "$x"; done
+for x in bash curl find dirname mktemp stat date python3; do need "$x"; done
 
 unset PIXEL_UPLOADER_SOURCE_ROOT PIXEL_UPLOADER_OUT
 unset RELEASE_DEVICE RELEASE_ROM RELEASE_PROJECT RELEASE_METADATA
@@ -17,8 +17,8 @@ is_android_tree(){
   return 1
 }
 
-# Do not consult a stale ANDROID_BUILD_TOP first. The directory where the
-# uploader is executed is always the release context.
+# The current directory is always the release context. Do not use a stale
+# ANDROID_BUILD_TOP from another ROM tree and do not walk into another tree.
 if ! is_android_tree "$PWD"; then
   printf '[ERROR] Current directory is not an Android source root: %s\n' "$PWD" >&2
   printf '[ERROR] Run the uploader directly from the ROM source root.\n' >&2
@@ -68,18 +68,33 @@ curl --fail --silent --show-error --location \
   "${CORE_URL}?ts=$(date +%s%N)" \
   -o "$CORE"
 
-# The current core contains banner-parser expressions with shell quote syntax
-# that older revisions generated incorrectly. Normalize only those known lines,
-# then validate the complete downloaded script before executing it.
-sed -i \
-  '/image_url=.*property=.*og:image/c\    image_url="$(sed -nE "s/.*property=\\\"og:image\\\"[^>]+content=\\\"([^\\\"]+)\\\".*/\\1/ip" "$page" | head -n1)' \
-  '/image_url=.*content=.*og:image.*property=/c\    [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*content=\\\"([^\\\"]+)\\\"[^>]+property=\\\"og:image\\\".*/\\1/ip" "$page" | head -n1)' \
-  '/image_url=.*name=.*twitter:image/c\    [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*name=\\\"twitter:image\\\"[^>]+content=\\\"([^\\\"]+)\\\".*/\\1/ip" "$page" | head -n1)' \
-  '/image_url=.*content=.*twitter:image.*name=/c\    [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*content=\\\"([^\\\"]+)\\\"[^>]+name=\\\"twitter:image\\\".*/\\1/ip" "$page" | head -n1)' \
-  "$CORE"
+# Repair only the four known malformed banner-parser lines from older core
+# revisions. This is line-based rather than regex-based, so it cannot disturb
+# unrelated shell control structures.
+python3 - "$CORE" <<'PY'
+from pathlib import Path
+import sys
 
-# Fix the multipart caption form field if an older core revision is present.
-sed -i 's/-F "caption=<$TEMP_MSG_FILE"/-F "caption=@$TEMP_MSG_FILE"/' "$CORE"
+p = Path(sys.argv[1])
+lines = p.read_text(encoding="utf-8").splitlines()
+out = []
+for line in lines:
+    if 'image_url="$(sed -nE' in line and 'og:image' in line and 'property=' in line:
+        if line.find('property=') < line.find('content='):
+            out.append('    image_url="$(sed -nE "s/.*property=\\\"og:image\\\"[^>]+content=\\\"([^\\\"]+)\\\".*/\\1/ip" "$page" | head -n1)"')
+        else:
+            out.append('    [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*content=\\\"([^\\\"]+)\\\"[^>]+property=\\\"og:image\\\".*/\\1/ip" "$page" | head -n1)"')
+    elif 'image_url="$(sed -nE' in line and 'twitter:image' in line and 'name=' in line:
+        if line.find('name=') < line.find('content='):
+            out.append('    [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*name=\\\"twitter:image\\\"[^>]+content=\\\"([^\\\"]+)\\\".*/\\1/ip" "$page" | head -n1)"')
+        else:
+            out.append('    [[ -n "$image_url" ]] || image_url="$(sed -nE "s/.*content=\\\"([^\\\"]+)\\\"[^>]+name=\\\"twitter:image\\\".*/\\1/ip" "$page" | head -n1)"')
+    elif '-F "caption=<$TEMP_MSG_FILE"' in line:
+        out.append(line.replace('-F "caption=<$TEMP_MSG_FILE"', '-F "caption=@$TEMP_MSG_FILE"'))
+    else:
+        out.append(line)
+p.write_text("\n".join(out) + "\n", encoding="utf-8")
+PY
 
 bash -n "$CORE" || {
   printf '[ERROR] release-uploader-core.sh failed syntax validation.\n' >&2
