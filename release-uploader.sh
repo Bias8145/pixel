@@ -82,7 +82,7 @@ ROWS='';CMDS='';ROM_NAME=''
 while IFS=$'\t' read -r orig name url sz md5 sha ty;do
   label="$ty";[[ "$ty" == IMAGE ]]&&label="IMAGE: $(basename "$orig" .img)";rowsize="$(size_of "$sz")";ROWS+="▫️ $(clean "$label") — $(clean "$rowsize") | MD5: ${md5:0:8} | SHA: ${sha:0:8}"$'\n'
   case "$ty" in ROM)ROM_NAME="$name";; BOOT)part=boot;;DTBO)part=dtbo;;'VENDOR BOOT')part=vendor_boot;;'VENDOR KERNEL BOOT')part=vendor_kernel_boot;;'INIT BOOT')part=init_boot;;VBMETA)part=vbmeta;;'VBMETA SYSTEM')part=vbmeta_system;;'VBMETA VENDOR')part=vbmeta_vendor;;RECOVERY)part=recovery;;*)part=;;esac
-  [[ -n "${part:-}" ]]&&{ [[ "$CODENAME" == bramble ]]&&CMDS+="fastboot flash --slot=all $part $(basename "$orig")"$'\n'||CMDS+="fastboot flash $part $(basename "$orig")"$'\n'; }
+  [[ -n "${part:-}" ]]&&CMDS+="fastboot flash $part $(basename "$orig")"$'\n'
 done<"$MANIFEST"
 [[ -n "$ROM_NAME" ]]||ROM_NAME='<ROM>.zip'
 
