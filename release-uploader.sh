@@ -37,7 +37,7 @@ if ((MODE==2||MODE==3)); then
   IMGS=(); while IFS= read -r f; do b="$(basename "$f")"; [[ "$b" =~ ^(boot|init_boot|dtbo|vendor_boot|vendor_kernel_boot|vbmeta|vbmeta_system|vbmeta_vendor)([-_].*)?\.img$ ]] && IMGS+=("$f"); done < <(find "$DOUT" -maxdepth 1 -type f -iname '*.img' -print | sort)
   ((${#IMGS[@]})) || die 'No supported images found.'
   echo; echo 'Images:'; i=1; for f in "${IMGS[@]}"; do printf '  [%d] %s\n' "$i" "$(basename "$f")"; ((i++)); done
-  while :; do read -r -p 'Select images (e.g. 1 3 4): ' raw || exit 1; raw="${raw//,/ }"; read -r -a sel <<< "$raw"; [[ ${#sel[@]} -gt 0 ]] || continue; good=1; seen=' '; for n in "${sel[@]}"; do [[ "$n" =~ ^[0-9]+$ ]] && ((n>=1&&n<=${#IMGS[@]})) || good=0; [[ "$seen" != *" $n "* ]] || { good=0; warn 'Duplicate image selection.'; }; seen+="$n "; done; ((good)) && break; warn "Enter valid image numbers from 1-${#IMGS[@]}, separated by spaces."; done
+  while :; do read -r -p 'Select images (e.g. 1 3 4): ' raw || exit 1; read -r -a sel <<< "$raw"; [[ ${#sel[@]} -gt 0 ]] || continue; good=1; seen=' '; for n in "${sel[@]}"; do [[ "$n" =~ ^[0-9]+$ ]] && ((n>=1&&n<=${#IMGS[@]})) || good=0; [[ "$seen" != *" $n "* ]] || { good=0; warn 'Duplicate image selection.'; }; seen+="$n "; done; ((good)) && break; warn "Enter valid image numbers from 1-${#IMGS[@]}, separated by spaces."; done
   for n in "${sel[@]}"; do FILES+=("${IMGS[$((n-1))]}"); done
 fi
 
@@ -53,14 +53,16 @@ read -r -p 'Continue upload? [Y/n]: ' yes || exit 1; [[ -z "$yes" || "$yes" =~ ^
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT; : > "$TMP/links"; : > "$TMP/manifest"
 pd(){ local f="$1" name="$2" r id; r="$(curl --fail-with-body -sS -u ":$PIXELDRAIN_API_KEY" -F "file=@$f;filename=$name" https://pixeldrain.com/api/file)" || return 1; id="$(jq -r '.id // empty' <<<"$r")"; [[ -n "$id" ]] || return 1; printf 'https://pixeldrain.com/u/%s' "$id"; }
-tele(){ local f="$1" name="$2" cap="$3"; curl --fail-with-body -sS "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" -F "chat_id=$CHAT_ID" -F "document=@$f;filename=$name" -F "caption=$cap" -F 'parse_mode=HTML' >/dev/null; }
+
 for f in "${FILES[@]}"; do
   [[ -f "$f" ]] || { warn "Missing: $f"; continue; }; base="$(basename "$f")"; if [[ $base == *.zip.md5 ]]; then name="${base%.zip.md5}_${TAG}.zip.md5"; else name="${base%.*}_${TAG}.${base##*.}"; fi
   size=$(stat -c %s "$f" 2>/dev/null || stat -f %z "$f"); sha=$(sha256sum "$f"|awk '{print $1}'); printf '%s | %s bytes | SHA256:%s\n' "$base" "$size" "$sha" >> "$TMP/manifest"
   if link=$(pd "$f" "$name"); then ok "Pixeldrain: $link"; printf '%s → %s\n' "$name" "$link" >> "$TMP/links"; else warn "Pixeldrain failed: $base"; fi
 done
+
+[[ -s "$TMP/links" ]] || die 'No files were uploaded to Pixeldrain; Telegram publish cancelled.'
 ESC=$(sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g' "$TMP/links")
-CAP="<b>$PROJECT</b>\n\n<b>Device:</b> $DEVICE\n<b>Android:</b> $ANDROID\n<b>Build:</b> $BUILD\n<b>SPL:</b> $PATCH\n<b>Variant:</b> $VARIANT\n<b>Root:</b> $ROOTM\n<b>SUSFS:</b> $SUSFS\n<b>Release:</b> $DATE\n\n<b>Files:</b>\n$ESC"
-curl --fail-with-body -sS "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -F "chat_id=$CHAT_ID" -F "text=$CAP" -F 'parse_mode=HTML' >/dev/null || warn 'Telegram metadata message failed.'
-for f in "${FILES[@]}"; do base="$(basename "$f")"; if [[ $base == *.zip.md5 ]]; then name="${base%.zip.md5}_${TAG}.zip.md5"; else name="${base%.*}_${TAG}.${base##*.}"; fi; tele "$f" "$name" "$PROJECT | $DEVICE | $VARIANT | $ROOTM | $SUSFS" && ok "Telegram: $base" || warn "Telegram failed: $base"; done
+CAP=$(printf '<b>📦 PUBLISH</b>\n\n<b>%s</b>\n\n<b>Device:</b> %s\n<b>Android:</b> %s\n<b>Build:</b> %s\n<b>SPL:</b> %s\n<b>Variant:</b> %s\n<b>Root:</b> %s\n<b>SUSFS:</b> %s\n<b>Release:</b> %s\n\n<b>Download:</b>\n%s' "$PROJECT" "$DEVICE" "$ANDROID" "$BUILD" "$PATCH" "$VARIANT" "$ROOTM" "$SUSFS" "$DATE" "$ESC")
+curl --fail-with-body -sS "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -F "chat_id=$CHAT_ID" -F "text=$CAP" -F 'parse_mode=HTML' >/dev/null || die 'Telegram publish failed.'
+ok 'Telegram publish sent with Pixeldrain download links.'
 ok "Release upload completed: $TAG"
