@@ -68,7 +68,6 @@ ANDROID="$(prop ro.build.version.release)"
 PATCH="$(prop ro.build.version.security_patch)"
 BUILD="$(prop ro.build.id)"
 DISPLAY="$(prop ro.build.display.id)"
-PRODUCT="$(prop ro.product.name)"
 msg "Device: $DEVICE | Android: $ANDROID | Build: $BUILD | SPL: $PATCH"
 
 echo
@@ -246,7 +245,7 @@ NOTES+=("⚠️ Always backup your data before flashing" "Follow the flash guide
 
 # Telegram publish message: text + inline download buttons, no uploaded photo/banner/file.
 E_PROJECT=$(html_escape "$PROJECT"); E_DEVICE=$(html_escape "$DEVICE"); E_ANDROID=$(html_escape "$ANDROID"); E_PATCH=$(html_escape "$PATCH_HUMAN"); E_BUILD=$(html_escape "$BUILD"); E_VARIANT=$(html_escape "$VARIANT"); E_ROOT=$(html_escape "$ROOTM"); E_SUSFS=$(html_escape "$SUSFS"); E_DATE=$(html_escape "$DATE_HUMAN"); E_AUTHOR=$(html_escape "$AUTHOR"); E_TAG=$(html_escape "$TAG")
-CAP="<b>📦 New Release: $E_PROJECT for $E_DEVICE</b>\n\n<b>Device:</b> $E_DEVICE\n<b>Project:</b> $E_PROJECT\n<b>Android Version:</b> $E_ANDROID\n<b>Security Patch:</b> $E_PATCH\n<b>Build:</b> $E_BUILD\n<b>Variant:</b> $E_VARIANT\n<b>Google Services:</b> $(case "$VARIANT" in GApps*) printf '%s' 'GApps included';; microG) printf '%s' 'microG included';; *) printf '%s' 'Not included';; esac)\n<b>Root:</b> $E_ROOT\n<b>SUSFS:</b> $E_SUSFS\n<b>Release Date:</b> $E_DATE\n<b>Maintainer:</b> $E_AUTHOR\n\n<b>Tag:</b> $E_TAG\n\n<b>Release Notes:</b>\n<pre>"
+CAP="<b>📦 New Release: $E_PROJECT for $E_DEVICE</b>\n\n<b>Device:</b> $E_DEVICE\n<b>Project:</b> $E_PROJECT\n<b>Android Version:</b> $E_ANDROID\n<b>Security Patch:</b> $E_PATCH\n<b>Build:</b> $E_BUILD\n<b>Build Variant:</b> $E_VARIANT\n<b>Google Services:</b> $(case "$VARIANT" in GApps*) printf '%s' 'GApps included';; microG) printf '%s' 'microG included';; *) printf '%s' 'Not included';; esac)\n<b>Root:</b> $E_ROOT\n<b>SUSFS:</b> $E_SUSFS\n<b>Release Date:</b> $E_DATE\n<b>Maintainer:</b> $E_AUTHOR\n\n<b>Tag:</b> $E_TAG\n\n<b>Release Notes:</b>\n<pre>"
 for note in "${NOTES[@]}"; do CAP+="$note\n"; done
 CAP+="\n</pre>\n\n<b>Files Size Information:</b>\n"
 while IFS=$'\t' read -r base label size md5 sha link; do
@@ -279,9 +278,9 @@ REPLY_MARKUP=$(jq -cn --argjson k "$KEYBOARD" '{inline_keyboard:$k}')
 
 curl --fail-with-body -sS "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
     -F "chat_id=$CHAT_ID" \
-    --data-urlencode "text=$CAP" \
+    -F "text=$CAP" \
     -F 'parse_mode=HTML' \
-    --data-urlencode "reply_markup=$REPLY_MARKUP" >/dev/null || die 'Telegram publish failed.'
+    -F "reply_markup=$REPLY_MARKUP" >/dev/null || die 'Telegram publish failed.'
 
 ok 'Telegram PUBLISH message sent with Pixeldrain download buttons.'
 ok "Release upload completed: $RELEASE_ID"
