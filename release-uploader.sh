@@ -12,7 +12,7 @@ curl --fail --silent --show-error --location "${CORE_URL}?ts=$(date +%s)" -o "$C
 awk '
 # Discover only genuine Android product outputs. A product directory must
 # contain Android build metadata and at least one release artifact.
-$0 ~ /^mapfile -t DEVICES < <\(find/ {
+index($0, "mapfile -t DEVICES < <(find") == 1 {
   print "mapfile -t DEVICES < <(for d in \"$OUT\"/*; do"
   print "  [[ -d \"$d\" ]] || continue"
   print "  _has_meta=0; _has_artifact=0"
@@ -24,27 +24,23 @@ $0 ~ /^mapfile -t DEVICES < <\(find/ {
   next
 }
 
-# Project identity must come from the selected artifact and/or the selected
-# device's real output metadata. Never use a stale hard-coded ROM name.
+# Project identity comes from the selected ROM artifact and real output metadata.
 $0 ~ /read -r -p/ && $0 ~ /Project name/ {
   print "ROM_PROJECT_DEFAULT=\"\""
   print "if ((MODE==1 || MODE==3)) && ((${#FILES[@]})); then"
   print "  _rom=\"${FILES[0]}\""
   print "  _base=\"$(basename \"$_rom\")\""
   print "  _stem=\"${_base%.*}\""
-  print "  # First: inspect the selected ROM archive itself."
   print "  if command -v unzip >/dev/null 2>&1 && [[ \"$_rom\" == *.zip || \"$_rom\" == *.ZIP ]]; then"
   print "    _zip_display=\"$(unzip -p \"$_rom\" '*/build.prop' 2>/dev/null | sed -n 's/^\\(ro\\.system\\.build\\.display\\.id\\|ro\\.build\\.display\\.id\\)=//p' | head -n1 | tr -d '\\r')\""
   print "    [[ -n \"$_zip_display\" ]] && ROM_PROJECT_DEFAULT=\"$_zip_display\""
   print "  fi"
-  print "  # Second: use the actual selected device output metadata."
   print "  if [[ -z \"$ROM_PROJECT_DEFAULT\" ]]; then"
   print "    for _k in ro.system.build.display.id ro.build.display.id ro.system.build.version.incremental ro.build.version.incremental; do"
   print "      _v=\"$(prop \"$_k\")\""
   print "      if [[ -n \"$_v\" && \"$_v\" != Unknown ]]; then ROM_PROJECT_DEFAULT=\"$_v\"; break; fi"
   print "    done"
   print "  fi"
-  print "  # Third: derive a neutral project name from the real artifact filename."
   print "  if [[ -z \"$ROM_PROJECT_DEFAULT\" ]]; then"
   print "    _name=\"$_stem\""
   print "    _name=\"$(printf '%s' \"$_name\" | sed -E 's/[._-](ota|update|package|signed|official|unofficial|final|release|test|debug|user|userdebug|eng|gapps|gms|vanilla|microg|core|full|pico)([._-].*)?$//I')\""
