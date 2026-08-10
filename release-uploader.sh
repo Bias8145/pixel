@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Run the uploader with a clean command environment. This prevents exported
+# shell functions/aliases (notably awk from interactive shell tooling) from
+# changing the behavior of the downloaded uploader.
+unalias awk 2>/dev/null || true
+unset -f awk 2>/dev/null || true
+
 CORE_URL="https://raw.githubusercontent.com/Bias8145/pixel/main/release-uploader-core.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
